@@ -1,0 +1,3025 @@
+---
+title: "Growth model analysis 3spp WB"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r functions}
+
+
+riverOrderedIn <- factor(c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),labels = c("WB","OL","OS","IL"), ordered = T)
+
+
+```
+
+
+Plots for the manuscript
+
+```{r Load data, message=FALSE}
+library(arm)
+library(relaimpo)
+library(linkedModels)
+library(arrayhelpers)
+library(tidyverse)
+library(gridExtra)
+
+load("D:/projects/linkedModels/data/out/ddD_bktbntats_1997.RData")
+load("D:/projects/linkedModels/data/out/ddddD_bktbntats_1997.RData")
+load("D:/projects/linkedModels/data/out/rawCountsAndMasses.RData")
+
+mcmc <- list()
+dGIn <- list()
+ddGIn2 <- list() 
+
+load("D:/projects/linkedModels/data/out/dG_1530971738_crossValFALSE_bkt1997_Nimble.RData")
+
+# input data
+d1 <- ddG[[1]][[1]]
+d2 <- ddG[[1]][[2]]
+meanSampleIntervalMean <- data.frame( meanSampleInterval = colMeans(d1$sampleIntervalMean), season = 1:d1$nSeasons )
+
+#RECALCULATE gr for dataset. Filtering by maxSampleInterval in the creat ddddG step leaves in trailing lengths from the long samp intervals
+d2 <- d2 %>%
+  group_by(tag) %>%
+  # arrange(tag,sampleNumber) %>%
+  mutate( lagObservedWeight = lead(observedWeight),
+          lagObservedLength = lead(observedLength),
+          grWeight = exp(lagObservedWeight - observedWeight)/as.numeric((lagDetectionDate - detectionDate)),
+          grLength = (lagObservedLength - observedLength)/as.numeric((lagDetectionDate - detectionDate))
+  )  %>%
+  ungroup()
+
+#d2 %>% filter(tag=='00088cc059') %>% select(tag,riverOrdered,riverN,lagRiverN,sampleNumber,observedLength,lagObservedLength)
+
+#input data frame
+ddGIn2[['bkt']] <- ddG[[1]][[2]]
+dGIn[['bkt']] <- dG
+# output data
+mcmc[['bkt']] <- mcmcProcessed
+
+
+load("D:/projects/linkedModels/data/out/dG_1530971744_crossValFALSE_bnt1997_Nimble.RData")
+ddGIn2[['bnt']] <- ddG[[1]][[2]]
+dGIn[['bnt']] <- dG
+mcmc[['bnt']]  <- mcmcProcessed
+
+load("D:/projects/linkedModels/data/out/dG_1530993703_crossValFALSE_ats1997_Nimble.RData")
+ddGIn2[['ats']] <- ddG[[1]][[2]]
+dGIn[['ats']] <- dG
+mcmc[['ats']]  <- mcmcProcessed
+
+rm(ddG,dG,mcmcProcessed)
+
+load("D:/projects/linkedModels/data/cd_west_1997.RData")
+```
+
+```{r mean lengths}
+
+# Has mean size changed over time?
+means <- 
+  cd %>% mutate( age = year - cohort ) %>%
+    filter( ageInSamples %in% 1:10, age < 3, year < 2016, area %in% c('inside','trib') ) %>%
+    group_by(species,riverOrdered,ageInSamples,year,season,age) %>%
+    summarize(meanLen = mean(observedLength,na.rm = TRUE),
+              sdLen = sd(observedLength,na.rm = TRUE),
+              meanGR = mean(grLength,na.rm = TRUE),
+              sdGR = sd(grLength,na.rm = TRUE)
+              )
+
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+lenSlopes <- means %>%
+  group_by( species, riverOrdered, ageInSamples, season, age ) %>%
+  nest()
+
+lengthModel <- function(df){
+  lm( meanLen ~ year, data = df )
+}
+
+grModel <- function(df){
+  lm( meanGR ~ year, data = df )
+}
+
+lenSlopes <- lenSlopes %>%
+  mutate( model = map(lenSlopes$data, lengthModel),
+          modelGR = map(lenSlopes$data, grModel))
+
+###################################
+######### len here, gr below ######
+lenSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(model, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig))  %>%
+  filter(!is.nan(statistic)) 
+
+lenSlopesTidy$seasonGG <- factor(lenSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+lenSlopesTidy$speciesGG <- factor(lenSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+save(lenSlopesTidy,file = 'D:/projects/westBrook-patterns/data/out/lenSlopesTidy.RData')
+##
+
+ggplot( means %>% filter(year >= 0), aes(year,meanLen, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 2) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean body length (mm)" ) +
+  # geom_text(data = lenSlopesTidy %>% filter(species == 'bkt'), aes(x=1999,y=220, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = lenSlopesTidy %>% filter(species == 'bnt'), aes(x=1999,y=200, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = lenSlopesTidy %>% filter(species == 'ats'), aes(x=1999,y=180, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age<2), aes(x=2000,y=225, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age<2), aes(x=2000,y=203, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = lenSlopesTidy %>% filter(species == 'ats', age<2), aes(x=2000,y=181, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  
+    geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age==2), aes(x=2009,y=104, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age==2), aes(x=2009,y=82, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = lenSlopesTidy %>% filter(species == 'ats', age==2), aes(x=2012.5,y=80, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ riverOrdered + age)
+
+ggsave(paste0('figures/meanLengths.png'), width = 11, height = 11, units='in')
+
+# mean increases 
+lenSlopesTidy %>%
+  filter() %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+lenSlopesTidy %>%
+  group_by(species) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(lenSlopesTidy %>% filter(), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point( size = 3) +
+  geom_smooth(method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean body length over years" ) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_wrap(~riverOrdered)
+
+ggsave(paste0('figures/meanLengthsOverAge.png'), width = 6, height = 6, units='in')
+
+summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bkt')))
+summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bnt')))
+
+
+#########################
+#### gr here, len above
+
+grSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(modelGR, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig)) %>%
+  filter(!is.nan(statistic)) 
+
+save(grSlopesTidy,file = 'D:/projects/westBrook-patterns/data/out/grSlopesTidy.RData')
+##
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+grSlopesTidy$seasonGG <- factor(grSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+grSlopesTidy$speciesGG <- factor(grSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot( means %>% filter(), aes(year,meanGR, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean growth rate (mm/d)" ) +
+  # geom_text(data = grSlopesTidy %>% filter(species == 'bkt'), aes(x=1999,y=220, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = grSlopesTidy %>% filter(species == 'bnt'), aes(x=1999,y=200, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = grSlopesTidy %>% filter(species == 'ats'), aes(x=1999,y=180, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age<2), aes(x=2000,y=0.7, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age<2), aes(x=2000,y=0.6, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = grSlopesTidy %>% filter(species == 'ats', age<2), aes(x=2000,y=181, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  
+    geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age==2), aes(x=2011.5,y=0.66, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age==2), aes(x=2011.5,y=0.56, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = grSlopesTidy %>% filter(species == 'ats', age==2), aes(x=2012.5,y=80, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ riverOrdered + age)
+
+ggsave(paste0('figures/meanGRs.png'), width = 11, height = 11, units='in')
+
+# mean increases 
+grSlopesTidy %>%
+  filter() %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+grSlopesTidy %>%
+  group_by(species) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(grSlopesTidy %>% filter(), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(size = 3) +
+  geom_smooth(method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean growth rate over years" ) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_wrap(~riverOrdered)
+
+ggsave(paste0('figures/meanGRsOverAge.png'), width = 6, height = 6, units='in')
+
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bkt')))
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bnt')))
+
+
+```
+
+```{r where are the fish?}
+
+allFishBySpeciesYOY$seasonGG <- factor(allFishBySpeciesYOY$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+
+allFishBySpeciesYOY$speciesGG <- factor(allFishBySpeciesYOY$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+allFishBySpeciesYOY$riverGG <- factor(allFishBySpeciesYOY$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("WB","OL","OS","IL"), ordered = T)
+
+allFishBySpeciesYOY %>% filter(!is.na(isYOY)) %>%
+  ggplot(aes(year,nAllFishBySpeciesYOY, color = speciesGG)) +
+    geom_point(size = 2) +
+    geom_smooth(method = 'lm', se=F) +
+    theme_publication() +
+    labs( x = "Year", y = "Estimated abundance" ) +
+    scale_color_grey(start = 0.2, end = 0.8) + 
+    facet_grid(seasonGG ~ riverGG + isYOY, scales = 'free')
+
+
+
+
+
+cd2 <- 
+  cd %>% mutate(age = year - cohort) %>%
+    filter(ageInSamples %in% 1:10, age < 3, year < 2016, enc == 1, area %in% c('inside','trib')) %>%
+   # group_by(species,riverOrdered,ageInSamples,year,season,age)
+     mutate(riverArea = ifelse( river == "west brook" & section > 20 & section < 32, 2, 1)) %>%
+     mutate(riverArea = ifelse( river == "west brook" & section >= 32, 3, riverArea))
+                 
+counts <- cd2 %>%
+  group_by(riverOrdered, riverArea)
+  
+
+```
+
+
+
+
+
+
+
+
+# below from MS_Analysis_2spp_WB
+
+```{r count summaries for MS}
+
+ddGInAll <- rbind(ddGIn2[[1]],ddGIn2[[2]],ddGIn2[[3]]) %>%
+  filter(year %in% 2000:2015, river == 'west brook') %>%
+  mutate( consecOcc = ifelse( is.na(grLength), 0,1 ) )
+
+ddGInAll %>%
+  group_by(river,species) %>%
+  distinct(tag) %>%
+  summarize( n = n() )
+
+#   species     n
+#   <chr>   <int>
+# 1 ats      5032
+# 2 bkt      8556
+# 3 bnt      6389
+
+ddGInAll %>%
+  group_by(river,species) %>%
+  summarize( n = n() )
+
+#   species     n
+#   <chr>   <int>
+# 1 ats     15791
+# 2 bkt     18412
+# 3 bnt     16510
+
+ddGInAll %>%
+  group_by(river,species,enc) %>%
+  summarize( n = n() )
+
+#   species   enc     n
+#   <chr>   <dbl> <int>
+# 1 ats         0  3515
+# 2 ats         1 12276
+# 3 bkt         0  3464
+# 4 bkt         1 14948
+# 5 bnt         0  3855
+# 6 bnt         1 12655
+
+ddGInAll %>%
+  group_by(river,species,consecOcc) %>%
+  summarize( n = n() ) %>%
+  spread(consecOcc,n, sep="_") %>%
+  mutate( prop0 = consecOcc_0/(consecOcc_0+consecOcc_1),
+          prop1 = 1 - prop0)
+
+#   river       species consecOcc_0 consecOcc_1 prop0 prop1
+# 5 west brook  ats           10203        5588 0.646 0.354
+# 6 west brook  bkt           13631        4781 0.740 0.260
+# 7 west brook  bnt           12420        4090 0.752 0.248
+
+length(unique(ddGInAll$sampleNumber))
+
+```
+
+```{r table of estimated abundances}
+
+ddGIn2[['bkt']] %>%
+  filter(river == 'west brook') %>%
+  distinct(river,year,season,nAllFishBySpeciesPBKT,nAllFishBySpeciesPBNT,nAllFishBySpeciesPATS) %>%
+  arrange(year, season)
+
+```
+
+
+```{r bnt density}
+
+ggplot(d2, aes(cBNTStd)) +
+  geom_histogram() +
+  facet_grid(season~riverOrdered)
+
+ggplot(d2, aes(cBNTStd, grLength)) +
+  geom_point(alpha=0.1) +
+  geom_smooth(method='lm') +
+  facet_grid(isYOY+season~riverOrdered)
+
+ggplot(d2, aes(cBKTStd, grLength)) +
+  geom_point(alpha=0.1) +
+  geom_smooth(method='lm') +
+  facet_grid(isYOY+season~riverOrdered)
+```
+
+
+```{r check lengthExp}
+len <- list()
+for( spp in c("bkt","bnt","ats") ){
+  
+  
+#  len2 <- array2df(mcmc[[spp]]$sims.list$lengthExp, label.x = "est") %>%
+#           rename(iter=d1,obs=d2)
+  offset <- 1
+  if(spp == 'ats') offset <- 0 # not sure why this is needed. REs seem meesed up in the graphs below
+  inds <- data.frame(ind = dGIn[[spp]][[1]]$constants$ind[1:(length(dGIn[[spp]][[1]]$constants$ind) - offset)],
+                     observedLength = dGIn[[spp]][[1]]$data$lengthDATA,
+                     sampleNumber = ddGIn2[[spp]]$sampleNumber[1:(length(ddGIn2[[spp]]$sampleNumber) - offset)],
+                     cohort = ddGIn2[[spp]]$cohort[1:(length(ddGIn2[[spp]]$cohort) - offset)],
+                     ageInSamples = ddGIn2[[spp]]$ageInSamples[1:(length(ddGIn2[[spp]]$ageInSamples) - offset)],
+                     riverOrdered = ddGIn2[[spp]]$riverOrdered[1:(length(ddGIn2[[spp]]$riverOrdered) - offset)],
+                     lagObservedLength = ddGIn2[[spp]]$lagObservedLength[1:(length(ddGIn2[[spp]]$lagObservedLength) - offset)],
+                     detectionDate = ddGIn2[[spp]]$detectionDate[1:(length(ddGIn2[[spp]]$detectionDate) - offset)],
+                     lagDetectionDate = ddGIn2[[spp]]$lagDetectionDate[1:(length(ddGIn2[[spp]]$lagDetectionDate) - offset)])
+  inds$obs <- 1:(length(dGIn[[spp]][[1]]$constants$ind) - offset)
+  
+  inds <-  inds %>%
+    group_by(ind) %>%
+    mutate(first = min(obs),
+           firstObs = obs == first,
+           observed = !is.na(observedLength),
+           sampleNumber = sampleNumber,
+           nObs = n(),
+           grLength = (lagObservedLength - observedLength)/as.numeric((lagDetectionDate - detectionDate))
+           ) %>%
+    ungroup()
+  
+#  len1 <- left_join(len2,inds)
+#  rm(len2,inds)
+  
+  # means
+  lenMean1 <- array2df(mcmc[[spp]]$mean$lengthExp, label.x = "estMean") %>%
+                rename(obs=d1)
+  len[[spp]] <- left_join(inds,lenMean1)  %>%
+                  mutate( estMean = ifelse( firstObs, observedLength, estMean ) )
+  
+  grIndREMean1 <- array2df(mcmc[[spp]]$mean$grIndRE, label.x = "grIndRE") %>%
+                rename(ind=d1)
+  
+  len[[spp]] <- left_join(len[[spp]],grIndREMean1)
+  
+#  len <- left_join(len1,lenMean1)
+#  rm(len1,lenMean1)
+  rm(inds,lenMean1)
+  gc()
+}
+
+
+len[['bkt']] %>% filter( nObs == 7 ) %>%
+  ggplot(aes(ageInSamples,observedLength)) +
+  geom_point(aes(color = factor(ind)), size=3) +
+  geom_point(aes(ageInSamples, estMean, color=factor(ind))) +
+  geom_line(aes(ageInSamples, estMean, color = factor(ind))) +
+  geom_point(aes(ageInSamples, estMean, color=factor(ind)), size=2) +
+  geom_point(aes(ageInSamples, estMean, color=factor(ind)), shape = 1, size = 2, color = 'black') +
+  theme(legend.position="none") +
+  facet_wrap(~cohort)
+
+focalFish <- 60
+
+len[['bkt']] %>% filter( cohort == 2001 ) %>%
+  ggplot(aes(ageInSamples,observedLength)) +
+  geom_point(aes(color = riverOrdered), size = 3) +
+  geom_point(color = 'black', shape = 1, size = 3) +
+  geom_point(aes(ageInSamples, estMean, color = riverOrdered)) +
+  geom_line( aes(ageInSamples, estMean, group = factor(ind), color = riverOrdered)) +
+  geom_point(aes(ageInSamples, estMean, color = riverOrdered), size = 2) +
+  geom_point(aes(ageInSamples, estMean, color = riverOrdered), shape = 1, size = 2, color = 'black') +
+ # theme(legend.position="none") +
+  facet_wrap(~nObs)
+
+len[['bkt']] %>% filter( cohort == 2001 ) %>%
+  ggplot(aes(ageInSamples,observedLength)) +
+  geom_point(aes(color = grIndRE), size = 3) +
+#  geom_point(color = 'black', shape = 1, size = 3) +
+  geom_point(aes(ageInSamples, estMean, color = grIndRE)) +
+  geom_line( aes(ageInSamples, estMean, group = factor(ind), color = grIndRE)) +
+  geom_point(aes(ageInSamples, estMean, color = grIndRE), size = 2) +
+#  geom_point(aes(ageInSamples, estMean, color = grIndRE), shape = 1, size = 2, color = 'black') +
+ # scale_colour_distiller(palette = "Spectral") +
+   scale_colour_gradient(low = "white", high = "black") +
+ # theme(legend.position="none") +
+  facet_wrap(~nObs)
+
+len[['bkt']] %>% #filter( cohort == 2001 ) %>%
+  ggplot(aes(ageInSamples,observedLength)) +
+  geom_point(aes(color = grIndRE), size = 3) +
+#  geom_point(color = 'black', shape = 1, size = 3) +
+  geom_point(aes(ageInSamples, estMean, color = grIndRE)) +
+  geom_line( aes(ageInSamples, estMean, group = factor(ind), color = grIndRE)) +
+  geom_point(aes(ageInSamples, estMean, color = grIndRE), size = 2) +
+#  geom_point(aes(ageInSamples, estMean, color = grIndRE), shape = 1, size = 2, color = 'black') +
+ # scale_colour_distiller(palette = "Spectral") +
+   scale_colour_gradient(low = "white", high = "black") +
+ # theme(legend.position="none") +
+  facet_grid(riverOrdered~cohort)
+
+len[['ats']] %>% filter( nObs > 0 ) %>%
+  group_by(ind) %>%
+  summarize( meanGRLength = mean(grLength,na.rm=TRUE),
+             meanGRIndRE = mean(grIndRE,na.rm=TRUE),
+             meanNObs = mean(nObs,na.rm=TRUE)) %>%
+  ggplot(aes(meanGRLength,meanGRIndRE)) +
+  geom_point() +
+  geom_smooth(method='lm') +
+#  scale_colour_gradient(low = "yellow", high = "red") +
+  facet_wrap(~meanNObs)
+
+```
+
+```{r winter growth rates}
+
+ggplot(ddG[[1]][[2]], aes(observedLength,grLength)) + 
+  geom_point() +
+  facet_grid(river + isYOY ~ season+species)
+
+```
+
+
+```{r adjusted counts}
+allFishBySpeciesYOY$riverOrderedGG <- factor(allFishBySpeciesYOY$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+allFishBySpeciesYOY$seasonGG <- factor(allFishBySpeciesYOY$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+allFishBySpeciesYOY$speciesGG <- factor(allFishBySpeciesYOY$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+#sum across YOY
+allFishBySpecies <- allFishBySpeciesYOY %>%
+   group_by(river,season,year,species) %>%
+   summarize( nAllFishBySpecies = sum(nAllFishBySpeciesYOY, na.rm=T),
+                massAllFishBySpecies = sum(massAllFishBySpeciesYOY, na.rm=T))
+allFishBySpecies$seasonGG <- factor(allFishBySpecies$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+allFishBySpeciesYOY <- left_join(allFishBySpeciesYOY,allFishBySpecies)
+
+
+# sum across YOY and species
+   allFish <- allFishBySpeciesYOY %>%
+     group_by(river,season,year) %>%
+     summarize( nAllFish = sum(nAllFishBySpeciesYOY, na.rm=T),
+                massAllFish = sum(massAllFishBySpeciesYOY, na.rm=T))
+   cd <- left_join(cd,allFish)
+
+allFish$riverOrderedGG <- factor(allFish$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+allFish$seasonGG <- factor(allFish$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+#########
+
+ggplot(allFishBySpeciesYOY %>% filter(riverOrderedGG == "West Brook"), aes(year,nAllFishBySpecies)) +
+  geom_point(aes(color = speciesGG)) +
+  geom_line(aes(color = speciesGG)) +
+  geom_line( data = allFish %>% filter(riverOrderedGG == "West Brook"), aes(year,nAllFish) ) +
+  theme_publication() +
+  labs( x = "Year", y = "Count" ) +
+  facet_wrap( ~ seasonGG )#, scales = "free_y" )
+
+ggsave('figures/3Spp_WB/counts.png')
+
+ggplot(allFishBySpeciesYOY %>% filter(riverOrderedGG == "West Brook", year >=2000), aes(year,nAllFishBySpecies)) +
+  geom_point(aes(color = speciesGG), size=3) +
+#  geom_line(aes(color = speciesGG)) +
+  geom_smooth(aes(color = speciesGG), se=FALSE,method='lm') +
+  geom_line( data = allFish %>% filter(riverOrderedGG == "West Brook", year >=2000), aes(year,nAllFish), size=1.25, color='darkgrey', linetype = 5 ) +
+  scale_y_continuous(limits = c(0,NA)) +
+  theme_publication() +
+  labs( x = "Year", y = "Estimated abundance" ) +
+  scale_color_grey(start = 0, end = 0.9) +
+  facet_wrap( ~ seasonGG , scales = "free_y" )
+
+ggsave('figures/3Spp_WB/countsWSlope.png', width = 11, height = 9, units='in')
+
+nSlopes <- allFishBySpeciesYOY %>%
+  filter(riverOrderedGG == "West Brook", year >=2000) %>%
+  group_by( species,  season ) %>%
+  nest()
+
+nModel <- function(df){
+  lm( nAllFishBySpecies ~ year, data = df )
+}
+
+nSlopes <- nSlopes %>%
+  mutate( model = map(nSlopes$data, nModel) )
+
+nSlopesTidy <- nSlopes %>%
+  mutate( glance = map(model, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter( term == 'year')
+
+save(nSlopesTidy,file = 'D:/projects/linkedModels/data/out/nSlopesTidy.RData')
+########################
+# add in sampleNumber
+tmp <- d2 %>% distinct(season,year,sampleNumber)
+allFishBySpeciesYOY <- left_join(allFishBySpeciesYOY,tmp)
+allFish <- left_join(allFish,tmp)
+
+ggplot(allFishBySpeciesYOY, aes(sampleNumber,nAllFishBySpeciesYOY)) +
+  geom_point(aes(color = speciesGG)) +
+  geom_line(aes(color = speciesGG)) +
+  geom_line( data = allFish, aes(sampleNumber,nAllFish) ) +
+  theme_publication() +
+  labs( x = "SampleNumber", y = "Count" ) +
+  facet_wrap(  ~riverOrderedGG )#, scales = "free_y" )
+
+
+
+```
+
+```{r Table 1 - sample summary}
+
+# sample summary table
+summaryTable <- allFishBySpecies %>% 
+          select(-massAllFishBySpecies) %>% 
+          filter(river == 'west brook', year %in% 2000:2015) %>% 
+          spread(species,nAllFishBySpecies) %>% 
+          arrange(year,seasonGG)
+
+write.csv(summaryTable, file = 'D:/projects/linkedModels/tables/rawCounts.csv')
+
+
+```
+
+
+```{r}
+# Correlation between age classes
+# justification for not using separate age class abundances
+# interesting that it is less for ATS
+# From the bottom of adjustCounts()
+# 
+#                               nAllFishBySpeciesPStdBKT_yoy1 nAllFishBySpeciesPStdBKT_yoy2 nAllFishBySpeciesPStdBNT_yoy1 nAllFishBySpeciesPStdBNT_yoy2
+# nAllFishBySpeciesPStdBKT_yoy1                          1.00                          0.96                         -0.46                         -0.43
+# nAllFishBySpeciesPStdBKT_yoy2                        **0.96**                        1.00                         -0.44                         -0.38
+# nAllFishBySpeciesPStdBNT_yoy1                         -0.46                         -0.44                          1.00                          0.94
+# nAllFishBySpeciesPStdBNT_yoy2                         -0.43                         -0.38                       * *0.94**                       1.00
+# nAllFishBySpeciesPStdATS_yoy1                         -0.13                         -0.17                         -0.21                          0.00
+# nAllFishBySpeciesPStdATS_yoy2                          0.06                         -0.03                         -0.05                          0.15
+#                               nAllFishBySpeciesPStdATS_yoy1 nAllFishBySpeciesPStdATS_yoy2
+# nAllFishBySpeciesPStdBKT_yoy1                         -0.13                          0.06
+# nAllFishBySpeciesPStdBKT_yoy2                         -0.17                         -0.03
+# nAllFishBySpeciesPStdBNT_yoy1                         -0.21                         -0.05
+# nAllFishBySpeciesPStdBNT_yoy2                          0.00                          0.15
+# nAllFishBySpeciesPStdATS_yoy1                          1.00                          0.47
+# nAllFishBySpeciesPStdATS_yoy2                         *0.47*                         1.00
+```
+
+
+```{r mean lengths}
+
+# Has mean size changed over time?
+means <- 
+  cd %>% mutate( age = year - cohort ) %>%
+    filter( riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016 ) %>%
+    group_by(species,ageInSamples,year,season,age) %>%
+    summarize(meanLen = mean(observedLength,na.rm = TRUE),
+              sdLen = sd(observedLength,na.rm = TRUE),
+              meanGR = mean(grLength,na.rm = TRUE),
+              sdGR = sd(grLength,na.rm = TRUE)
+              )
+
+lenSlopes <- means %>%
+  group_by( species, ageInSamples, season, age ) %>%
+  nest()
+
+lengthModel <- function(df){
+  lm( meanLen ~ year, data = df )
+}
+
+grModel <- function(df){
+  lm( meanGR ~ year, data = df )
+}
+
+lenSlopes <- lenSlopes %>%
+  mutate( model = map(lenSlopes$data, lengthModel),
+          modelGR = map(lenSlopes$data, grModel))
+
+###################################
+######### len here, gr below ######
+lenSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(model, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig))
+
+save(lenSlopesTidy,file = 'D:/projects/linkedModels/data/out/lenSlopesTidy.RData')
+##
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+lenSlopesTidy$seasonGG <- factor(lenSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+lenSlopesTidy$speciesGG <- factor(lenSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot( means %>% filter(year >= 2000, species != 'ats'), aes(year,meanLen, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean body length (mm)" ) +
+  # geom_text(data = lenSlopesTidy %>% filter(species == 'bkt'), aes(x=1999,y=220, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = lenSlopesTidy %>% filter(species == 'bnt'), aes(x=1999,y=200, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = lenSlopesTidy %>% filter(species == 'ats'), aes(x=1999,y=180, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age<2), aes(x=2000,y=225, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age<2), aes(x=2000,y=203, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = lenSlopesTidy %>% filter(species == 'ats', age<2), aes(x=2000,y=181, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  
+    geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age==2), aes(x=2012.5,y=104, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age==2), aes(x=2012.5,y=82, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = lenSlopesTidy %>% filter(species == 'ats', age==2), aes(x=2012.5,y=80, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG~age)
+
+ggsave(paste0('figures/3Spp_WB/meanLengths.png'), width = 11, height = 11, units='in')
+
+# mean increases 
+lenSlopesTidy %>%
+  filter(species != 'ats') %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+lenSlopesTidy %>%
+  group_by(species) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(lenSlopesTidy %>% filter(species != 'ats'), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(aes( shape = factor(seasonGG)), size = 3) +
+  geom_smooth(method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean body length over years" ) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) 
+
+ggsave(paste0('figures/3Spp_WB/meanLengthsOverAge.png'), width = 6, height = 6, units='in')
+
+summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bkt')))
+summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bnt')))
+
+
+#########################
+#### gr here, len above
+
+grSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(modelGR, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig))
+
+save(grSlopesTidy,file = 'D:/projects/linkedModels/data/out/grSlopesTidy.RData')
+##
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+grSlopesTidy$seasonGG <- factor(grSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+grSlopesTidy$speciesGG <- factor(grSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot( means %>% filter(year >= 2000, species != 'ats'), aes(year,meanGR, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean growth rate (mm/d)" ) +
+  # geom_text(data = grSlopesTidy %>% filter(species == 'bkt'), aes(x=1999,y=220, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = grSlopesTidy %>% filter(species == 'bnt'), aes(x=1999,y=200, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  # geom_text(data = grSlopesTidy %>% filter(species == 'ats'), aes(x=1999,y=180, label=paste(round(estimate,2),round(p.value,4)), color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age<2), aes(x=2000,y=0.7, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age<2), aes(x=2000,y=0.6, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = grSlopesTidy %>% filter(species == 'ats', age<2), aes(x=2000,y=181, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  
+    geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age==2), aes(x=2011.5,y=0.66, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age==2), aes(x=2011.5,y=0.56, label=paste(round(estimate,4),sig)),hjust = 0)+#, color = speciesGG)) +
+#  geom_text(data = grSlopesTidy %>% filter(species == 'ats', age==2), aes(x=2012.5,y=80, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG~age)
+
+ggsave(paste0('figures/3Spp_WB/meanGRs.png'), width = 11, height = 11, units='in')
+
+# mean increases 
+grSlopesTidy %>%
+  filter(species != 'ats') %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+grSlopesTidy %>%
+  group_by(species) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(grSlopesTidy %>% filter(species != 'ats'), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(aes( shape = factor(seasonGG)), size = 3) +
+  geom_smooth(method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean growth rate over years" ) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) 
+
+ggsave(paste0('figures/3Spp_WB/meanGRsOverAge.png'), width = 6, height = 6, units='in')
+
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bkt')))
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bnt')))
+
+
+```
+
+
+```{r figs 3,4, flow and temp}
+d2$riverOrderedGG <- factor(d2$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+d2$seasonGG <- factor(d2$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+
+d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+  filter( riverOrderedGG == "West Brook" ) %>%
+  summarize(meanF = mean(meanFlow, na.rm=T),
+            sdF = sd(meanFlow, na.rm=T)) %>%
+  ggplot( aes(year,meanF) ) +
+  geom_point( size = 3 ) +
+  geom_line() +
+ # geom_smooth(method = 'lm', se=F) +
+  geom_errorbar( aes(ymin = meanF - sdF, ymax = meanF + sdF, width = 0.33 ) ) +
+  labs( x = "Year", y = "Stream flow (x/x)" ) +
+  theme_publication() +
+  facet_wrap(~seasonGG)
+
+ggsave('figures/3Spp_WB/flow.png')
+
+lmFunctionF <- function(df){ lm( meanF ~ year, data=df ) }
+
+flowMods <- d2 %>%
+  group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanF = mean(meanFlow, na.rm=T),
+            sdF = sd(meanFlow, na.rm=T)) %>%
+  group_by( riverOrderedGG, seasonGG ) %>%
+  nest() %>%
+  mutate( model = map(data,lmFunctionF) )
+
+flowSlopesTidy <- flowMods %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  filter( term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*",""))
+
+save(flowSlopesTidy,file = 'D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
+
+#################
+
+
+lmFunction <- function(df){ lm( meanT ~ year, data=df ) }
+
+tempMods <- d2 %>%
+  group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T)) %>%
+  group_by( riverOrderedGG, seasonGG ) %>%
+  nest() %>%
+  mutate( model = map(data,lmFunction) )
+
+tempSlopesTidy <- tempMods %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  filter( term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*",""))
+
+d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T)) %>%
+  filter(riverOrderedGG == "West Brook") %>%
+  ggplot( aes(year,meanT) ) +
+  geom_smooth(method = 'lm', se=F, color = 'darkgrey') +
+  geom_point( size = 3 ) +
+  geom_line() +
+  geom_errorbar( aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 ) ) +
+  labs( x = "Year", y = "Stream temperature (C)" ) +
+  geom_text(data=tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=17.5, label=paste(round(estimate,2),sig))) +
+  theme_publication() +
+  facet_wrap(~seasonGG)
+
+ggsave('figures/3Spp_WB/temp.png')
+
+save(tempSlopesTidy,file = 'D:/projects/linkedModels/data/out/tempSlopesTidy.RData')
+```
+
+
+```{r Carys Jones analysis w season}
+######
+# for Carys Jones analysis
+dJonesT <- 
+  d2 %>% group_by(riverOrderedGG,seasonGG,year,season) %>%
+    summarize(meanT = mean(meanTemperature, na.rm=T),
+              sdT = sd(meanTemperature, na.rm=T)) %>%
+    filter(riverOrderedGG == "West Brook") %>%
+    ungroup() %>%
+    dplyr::select(year,season,meanT,sdT)
+
+####
+# daily temps
+
+
+#####
+# Lengths
+# from 'r mean lengths' chunk above 
+
+means <- 
+  cd %>% mutate( age = year - cohort ) %>%
+    #filter( riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016 ) %>%
+    filter( riverOrdered == 'west brook', year < 2016 ) %>%
+    group_by(species,ageInSamples,year,season,age,isYOY) %>%
+    summarize(meanLen = mean(observedLength,na.rm = TRUE),
+              sdLen = sd(observedLength,na.rm = TRUE),
+              meanGR = mean(grLength,na.rm = TRUE),
+              sdGR = sd(grLength,na.rm = TRUE),
+              nLen = n()
+              )
+
+dJonesL <- 
+  means %>%
+   # filter(season == 3, age == 1) %>%
+  #filter(age == 1) %>%
+    ungroup() #%>%
+    #dplyr::select(species,year,season,age,meanLen,sdLen)
+
+######
+# abundance
+# run 'r adjusted counts' above
+
+dJonesA <- 
+  allFishBySpeciesYOY %>% 
+  #  filter(riverOrderedGG == "West Brook", year >=2000, season == 3, isYOY == 2) %>%
+  filter(riverOrderedGG == "West Brook") %>% #, year >=2000, isYOY == 2) %>%
+    ungroup() %>%
+    dplyr::select(species,year,isYOY,season,nAllFishBySpeciesYOY,nAllFishBySpecies)
+
+######
+# phi
+# run 'r p(detection)' below
+# only has summer survival, may want annual survival
+
+dJonesP <- phi %>%
+  #filter(season == 2, isYOYGG == 'Adult') %>%
+  #filter(isYOYGG == 'Adult') %>%
+  dplyr::select(speciesGG,yearGG,season,isYOYGG,isYOY,phi,phiSD,phi25,phi975) %>%
+  rename(species = speciesGG, year = yearGG) %>%
+  mutate(species = as.character(species))
+  
+
+dJonesAL <- left_join(dJonesA,dJonesL) 
+dJonesALT <-  left_join(dJonesAL,dJonesT)
+dJonesALTP <-  left_join(dJonesALT,dJonesP)
+
+##
+write.csv(dJonesALTP, file = 'D:/projects/linkedModels/dataForCarysJones/dJonesALTP_allSeasonsSpeciesAges.csv')
+```
+
+
+```{r mean gr graphs}
+cd$riverOrderedGG <- factor(cd$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+cd$seasonGG <- factor(cd$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+cd$speciesGG <- factor(cd$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+pd <- position_dodge(0.65)
+
+growthYOY <- 
+cd %>% group_by(speciesGG,species,riverOrderedGG,seasonGG,isYOY) %>%
+  filter( riverOrdered == 'west brook', year < 2016, species != 'ats' )  %>%
+  summarize(meanGR = mean(grLength, na.rm=T),
+            sdGR = sd(grLength, na.rm=T)) 
+
+ggplot(growthYOY%>%filter(isYOY == 1), aes(seasonGG,meanGR, color=speciesGG, shape=speciesGG) ) +
+  geom_point( position = pd, size = 3 ) +
+  geom_errorbar( aes(ymin = meanGR - sdGR, ymax = meanGR + sdGR), width = 0.33, position=pd ) +
+  ggtitle( "isYOY = 1" ) +
+  labs( x = "Season", y = "Growth rate (mm/d)" ) +
+  #scale_x_continuous( breaks = 1997:2015 ) +
+  scale_color_grey(start = 0.0, end = 0.5) +
+  theme_publication() +
+  theme( panel.grid.minor = element_blank() ) 
+#  facet_wrap( ~ riverOrderedGG)
+
+ggsave('figures/3Spp_WB/meanGRYOY1.png', width = 4, height = 4, units='in')
+
+
+ggplot(growthYOY%>%filter(isYOY == 2), aes(seasonGG,meanGR, color=speciesGG, shape=speciesGG) ) +
+  geom_point( position = pd, size = 3 ) +
+  geom_errorbar( aes(ymin = meanGR - sdGR, ymax = meanGR + sdGR), width = 0.33, position=pd ) +
+  ggtitle( "isYOY = 2" ) +
+  labs( x = "Season", y = "Growth rate (mm/d)" ) +
+  #scale_x_continuous( breaks = 1997:2015 ) +
+  scale_color_grey(start = 0.0, end = 0.5) +
+  theme_publication() +
+  theme( panel.grid.minor = element_blank() ) 
+
+ggsave('figures/3Spp_WB/meanGRYOY2.png', width = 4, height = 4, units='in')
+
+
+# get ratios of growth rates for the 2 species
+growthYOYWide <- growthYOY %>% ungroup() %>% select(-sdGR,-speciesGG) %>% spread(key=species,value=meanGR) %>%
+  mutate(ratio = bnt/bkt)
+
+mean(growthYOYWide$ratio)
+# 1.107745
+
+```
+
+```{r mean growth rate ratios}
+
+cd %>% group_by(species) %>% filter(riverOrderedGG == "West Brook",species != 'ats') %>%
+  summarize(meanGR = mean(grLength, na.rm=T),
+            sdGR = sd(grLength, na.rm=T))
+.197/.182#bnt/bkt
+
+cd %>% group_by(isYOY) %>% filter(riverOrderedGG == "West Brook",species != 'ats') %>%
+  summarize(meanGR = mean(grLength, na.rm=T),
+            sdGR = sd(grLength, na.rm=T))
+.145/.244 #adult/yoy
+.244/.145
+
+
+cd %>% group_by(season) %>% filter(riverOrderedGG == "West Brook",species != 'ats') %>%
+  summarize(meanGR = mean(grLength, na.rm=T),
+            sdGR = sd(grLength, na.rm=T))
+.434/((.114+.124+.067)/3)
+```
+
+
+
+```{r - why bad convergence for bnt in winter?}
+
+cd %>% filter() %>%
+  ggplot(aes(observedLength,grLength)) +
+  geom_point() +
+  facet_grid(season~species)
+
+```
+
+
+```{r questions}
+
+
+
+
+```
+
+
+```{r p(detection)}
+  # ggPInt <- array2df(ddD$sims.list$pBetaInt, label.x = "est")
+  # 
+  # ggPInt$chain <- rep(1:ddD$mcmc.info$n.chains, each = ddD$mcmc.info$n.samples/ddD$mcmc.info$n.chains)
+  # ggPInt$iter <- 1:as.numeric(ddD$mcmc.info$n.samples/ddD$mcmc.info$n.chains)
+  # 
+  # ggplot(filter(ggPInt), aes(iter,est)) + 
+  #   geom_point( aes(color=factor(chain)), size = 0.1 ) + 
+  #   ylim(-1.5,1.5) + 
+  #   facet_grid(d2+d4~d5+d3)
+
+  p <- array2df(ddD$q50$pBetaInt, label.x = "est") %>%
+    rename(est=est,isYOY=d1,species=d2,season=d3,river=d4,year=d5) %>% filter(river == 1, year > 3) 
+
+  p$speciesGG <- factor(p$species, levels = 1:3, labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+  p$seasonGG <- factor(p$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+  p$isYOYGG <- factor(p$isYOY, levels = 1:2, labels = c("Juvenile","Adult"), ordered = T)
+  p$yearGG <- p$year + 1996
+  
+  ggplot(p, aes(yearGG,invlogit(est),color=factor(speciesGG))) + 
+    geom_point(size = 2) + 
+    labs( x = 'Year', y = 'Probability of detection') +
+    scale_color_grey(start = 0.0, end = 0.85) +
+    theme_publication() +
+    facet_grid( seasonGG ~ isYOYGG)
+ 
+  # seem to need to run the ggsave outside of markdown by pasting into console
+   ggsave('figures/3Spp_WB/p.png', height = 11, width = 9, units = 'in')
+  
+  p %>% group_by(species) %>%
+    summarize(meanP = mean(invlogit(est)),
+              sdP = sd(invlogit(est)))
+   
+  p %>% group_by(season) %>%
+    summarize(meanP = mean(invlogit(est)))
+   
+  ##################### 
+  phi <- array2df(ddD$q50$phiBetaInt, label.x = "est") %>%
+    rename(est=est,isYOY=d1,species=d2,season=d3,river=d4,year=d5) %>% filter(river == 1)#, year > 3)  
+  
+  phi$speciesGG <- factor(phi$species, levels = 1:3, labels = c("bkt", "bnt", "ats"), ordered = T)
+  phi$seasonGG <- factor(phi$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+  phi$isYOYGG <- factor(phi$isYOY, levels = 1:2, labels = c("Juvenile","Adult"), ordered = T)
+  phi$yearGG <- phi$year + 1996
+  phi$phi <- invlogit(phi$est)
+
+  # add in sd of phiBetaInt
+  phiSD <- array2df(ddD$sd$phiBetaInt, label.x = "estSD") %>%
+    rename(estSD=estSD,isYOY=d1,species=d2,season=d3,river=d4,year=d5) %>% filter(river == 1)#, year > 3)  
+  phiSD$phiSD <- invlogit(phiSD$estSD)
+
+    # add in q2.5 of phiBetaInt
+  phi25 <- array2df(ddD$q2.5$phiBetaInt, label.x = "est25") %>%
+    rename(est25=est25,isYOY=d1,species=d2,season=d3,river=d4,year=d5) %>% filter(river == 1)#, year > 3)  
+  phi25$phi25<- invlogit(phi25$est25)
+  
+    # add in 97.5 of phiBetaInt
+  phi975 <- array2df(ddD$q97.5$phiBetaInt, label.x = "est975") %>%
+    rename(est975=est975,isYOY=d1,species=d2,season=d3,river=d4,year=d5) %>% filter(river == 1)#, year > 3)  
+  phi975$phi975 <- invlogit(phi975$est975)
+    
+  phi <- left_join(phi, phiSD)
+  phi <- left_join(phi, phi25)
+  phi <- left_join(phi, phi975) 
+  phi <- phi %>% select(-estSD,-est25,-est975)
+  
+  ggplot(phi %>% filter(year > 3), aes(yearGG,phi,color=factor(speciesGG))) +geom_point() + facet_grid(seasonGG ~ isYOYGG)
+
+  ggsave('figures/3Spp_WB/phi.png')
+  
+  phi %>% group_by(species) %>%
+    summarize(meanPhi = mean(invlogit(est)),
+              sdPhi = sd(invlogit(est)))
+   
+  phi %>% group_by(season) %>%
+    summarize(meanPhi = mean(invlogit(est)))
+  
+# # of skunked sections    
+  tmp <- dddD[[2]] %>%
+           group_by(riverOrdered,year,season,section) %>%
+           summarize( s = sum(enc) ) %>%
+           filter( s == 0 )
+  table(tmp$riverOrdered,tmp$year,tmp$season)
+  
+```
+
+```{r r-hat}
+
+rBkt <- unlist(mcmc[['bkt']]$Rhat)
+sort(rBkt[rBkt > 1.1])
+
+rBnt <- unlist(mcmc[['bnt']]$Rhat)
+sort(rBnt[rBnt > 1.1])
+mcmc[['bnt']]$Rhat$grBeta[,,,1]
+mcmc[['bnt']]$Rhat$grInt
+mcmc[['bnt']]$Rhat$grIntMu
+
+rHat <- list()
+rHat[['bkt']] <- array2df(mcmc[['bkt']]$Rhat$grBeta, levels = list(beta=1:7,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="rHat")
+rHat[['bnt']] <- array2df(mcmc[['bnt']]$Rhat$grBeta, levels = list(beta=1:7,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="rHat")
+rHat[['ats']] <- array2df(mcmc[['ats']]$Rhat$grBeta, levels = list(beta=1:7,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="rHat")
+
+# rHat[['bkt']] <- array2df(mcmc[['bkt']]$Rhat$grBeta, levels = list(beta=1:8,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="rHat")
+# rHat[['bnt']] <- array2df(mcmc[['bnt']]$Rhat$grBeta, levels = list(beta=1:8,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="rHat")
+# rHat[['ats']] <- array2df(mcmc[['ats']]$Rhat$grBeta, levels = list(beta=1:8,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="rHat")
+
+hist(rHat[["bkt"]]$rHat)
+hist(rHat[["bnt"]]$rHat)
+rHat[["bnt"]] %>% filter( rHat >1.1 )
+
+ggplot(rHat[["bkt"]], aes(beta,rHat)) +
+  geom_point() +
+  facet_grid(river+isYOY~season)
+
+
+```
+
+
+```{r mcmc output analysis-grInt}
+
+grInt <- list()
+grInt[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$grInt, levels = list(iter=NA,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="int") %>% mutate(species = 'bkt')
+grInt[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$grInt, levels = list(iter=NA,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="int") %>%   mutate(species = 'bnt')
+grInt[['ats']] <- array2df(mcmc[['ats']]$sims.list$grInt, levels = list(iter=NA,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="int") %>% mutate(species = 'ats')
+
+
+ggplot( grInt[['bkt']] %>% filter(river %in% c('west brook','wb jimmy')), aes(int)) +
+  geom_freqpoly() +
+  geom_freqpoly(aes((int)),color = 'brown', data = grInt[['bnt']]) +
+  geom_freqpoly(aes((int)),color = 'lightblue', data = grInt[['ats']]) +
+ # xlim(-0.5,1.5) +
+  theme_publication() +
+  facet_grid(season ~ river + isYOY)
+
+#grIntDF <- rbind(grInt[['bkt']],grInt[['bnt']],grInt[['ats']])
+#tmp <- grIntDF %>% filter(river == 'west brook')
+#save(tmp , file= "data/out/grIntDFAllIters.RData") #for Ron
+
+##################################################
+# as range plot
+
+plotHPD <- function(sppToPlot){
+
+  nRivers <- list()
+  nRivers[['bkt']] <- 4; nRivers[['bnt']] <- 2; nRivers[['ats']] <- 1
+  
+  probs <- c(0.025,0.1,0.5,0.9,0.975)
+  q <- grInt[[sppToPlot]] %>%
+    group_by(isYOY,season,river) %>%
+    summarize(
+      p = list(probs),
+      q = list(quantile(int,probs))
+    ) %>%
+    unnest() %>%
+    spread(key = p, value = q)
+  
+  
+  p <- array2df(mcmc[[sppToPlot]]$mean$grInt, levels = list(isYOY=c(1,2),season=1:4,river=riverOrderedIn[1:nRivers[[sppToPlot]]]), label.x="int") %>%
+    mutate( season = as.numeric(season) ) %>%
+    left_join(.,meanSampleIntervalMean, by = 'season')
+  p$intByDay <- p$int#/p$meanSampleInterval
+  p$intByDay <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intByDay)
+  p$seasonGG <- factor(p$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+  p$parameter <- p$seasonGG
+  
+  pUp <- array2df(mcmc[[sppToPlot]]$q97.5$grInt, levels = list(isYOY=c(1,2),season=1:4,river=riverOrderedIn[1:nRivers[[sppToPlot]]]), label.x="intUp") %>%
+    mutate( season = as.numeric(season) ) 
+  pDown <- array2df(mcmc[[sppToPlot]]$q2.5$grInt, levels = list(isYOY=c(1,2),season=1:4,river=riverOrderedIn[1:nRivers[[sppToPlot]]]), label.x="intDown") %>%
+    mutate( season = as.numeric(season) )
+  
+  p <- left_join(p,pUp); p <- left_join(p,pDown)
+  
+  p$intByDayUp <- p$intUp#/p$meanSampleInterval; 
+  p$intByDayDown <- p$intDown#/p$meanSampleInterval
+  p$intByDay <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intByDay)
+  p$intByDayUp <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intByDayUp)
+  p$intByDayDown <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intByDayDown)
+  
+  p$seasonGG <- factor(p$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+  #print(c(min(p$intByDayDown,na.rm=T),max(p$intByDayDown,na.rm=T)))
+
+  #save(p, file= paste0("data/out/allInts_",sppToPlot,".RData"))  #for projections and tables
+    
+    gg <- ggplot(p %>% filter(river=='west brook'), aes(x = intByDay, y = reorder(parameter,intByDay,na.rm=TRUE), color = factor(isYOY), shape = factor(isYOY))) + 
+        theme_publication() +  
+        geom_point(size = 4) +
+        geom_segment(aes(x = intByDay, xend = intByDayUp, yend = reorder(parameter, intByDay)), 
+        size = 0.5, arrow = arrow(angle = 90, length = unit(0.05, "inches"))) + 
+        geom_segment(aes(x = intByDay, xend = intByDayDown, yend = reorder(parameter, intByDay)), 
+        size = 0.5,arrow = arrow(angle = 90, length = unit(0.05, "inches"))) +
+        xlim(c(-0.00,0.55)) +
+        xlab("Mean daily growth (mm/d)") + ylab("Season") +
+        scale_color_grey(start = 0, end = 0.65) 
+       # ggtitle(sppToPlot) 
+       
+    return(gg)
+}
+
+plotHPD('bkt'); ggsave('figures/3Spp_WB/HDP_bkt.png', height = 5, width = 5, scale = 1)
+plotHPD('bnt'); ggsave('figures/3Spp_WB/HDP_bnt.png', height = 5, width = 5, scale = 1)
+plotHPD('ats'); ggsave('figures/3Spp_WB/HDP_ats.png', height = 5, width = 5, scale = 1)
+```
+
+```{r sigmaInt}
+        
+sigmaInt <- list()
+sigmaInt[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$sigmaInt, levels = list(iter=NA,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="int")
+sigmaInt[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$sigmaInt, levels = list(iter=NA,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="int")
+sigmaInt[['ats']] <- array2df(mcmc[['ats']]$sims.list$sigmaInt, levels = list(iter=NA,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="int")
+
+bw <- 0.05
+ggplot( sigmaInt[['bkt']] %>% filter(river %in% c('west brook','wb jimmy')), aes(int)) +
+  geom_freqpoly(binwidth = bw) +
+  geom_freqpoly(aes(int),binwidth = bw,color = 'brown', data = sigmaInt[['bnt']]) +
+  geom_freqpoly(aes(int),binwidth = bw,color = 'lightblue', data = sigmaInt[['ats']]) +
+  #xlim(-4.5,-1) +
+  xlim(-5,2.5) +
+  theme_publication() +
+  facet_grid(season ~ river + isYOY)
+
+
+##################################################
+# as range plot
+
+plotHPDSigma <- function(sppToPlot){
+
+  nRivers <- list()
+  nRivers[['bkt']] <- 4; nRivers[['bnt']] <- 2; nRivers[['ats']] <- 1
+  
+  probs <- c(0.025,0.1,0.5,0.9,0.975)
+  q <- sigmaInt[[sppToPlot]] %>%
+    group_by(isYOY,season,river) %>%
+    summarize(
+      p = list(probs),
+      q = list(quantile(int,probs))
+    ) %>%
+    unnest() %>%
+    spread(key = p, value = q)
+  
+  
+  p <- array2df(mcmc[[sppToPlot]]$mean$sigmaInt, levels = list(isYOY=c(1,2),season=1:4,river=riverOrderedIn[1:nRivers[[sppToPlot]]]), label.x="int") %>%
+    mutate( season = as.numeric(season) ) %>%
+    left_join(.,meanSampleIntervalMean, by = 'season')
+ # p$intByDay <- p$int/p$meanSampleInterval
+#  p$intByDay <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intByDay)
+  p$seasonGG <- factor(p$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+  p$parameter <- p$seasonGG
+  
+  
+  pUp <- array2df(mcmc[[sppToPlot]]$q97.5$sigmaInt, levels = list(isYOY=c(1,2),season=1:4,river=riverOrderedIn[1:nRivers[[sppToPlot]]]), label.x="intUp") %>%
+    mutate( season = as.numeric(season) ) 
+  pDown <- array2df(mcmc[[sppToPlot]]$q2.5$sigmaInt, levels = list(isYOY=c(1,2),season=1:4,river=riverOrderedIn[1:nRivers[[sppToPlot]]]), label.x="intDown") %>%
+    mutate( season = as.numeric(season) )
+  
+  
+  p <- left_join(p,pUp); p <- left_join(p,pDown)
+  
+ # p$intByDayUp <- p$intUp/p$meanSampleInterval; p$intByDayDown <- p$intDown/p$meanSampleInterval
+  p$int <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$int)
+  p$intUp <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intUp)
+  p$intDown <- ifelse(p$isYOY == 1 & p$season == 2, NA, p$intDown)
+  
+  #print(c(min(p$intDown,na.rm=T),max(p$intDown,na.rm=T)))
+  
+    gg <- ggplot(p %>% filter(river == 'west brook'), aes(x = exp(int), y = reorder(parameter,int,na.rm=TRUE), color = factor(isYOY), shape = factor(isYOY))) + 
+        theme_publication() +  
+        geom_point(size = 3) +
+        geom_segment(aes(x = exp(int), xend = exp(intUp), yend = reorder(parameter, int)), 
+        size = 0.5, arrow = arrow(angle = 90, length = unit(0.05, "inches"))) + 
+        geom_segment(aes(x = exp(int), xend = exp(intDown), yend = reorder(parameter, int)), 
+        size = 0.5,arrow = arrow(angle = 90, length = unit(0.05, "inches"))) +
+        #xlim(c(-0.0015,0.01)) +
+        xlab("Standard deviation of daily growth (mm/d)") + ylab("Season") +
+        scale_color_grey(start = 0, end = 0.65) 
+       # ggtitle(sppToPlot) 
+       
+    return(gg)
+}
+
+plotHPDSigma('bkt'); ggsave('figures/3Spp_WB/HDPSigma_bkt.png', height = 5, width = 5, scale = 1)
+plotHPDSigma('bnt'); ggsave('figures/3Spp_WB/HDPSigma_bnt.png', height = 5, width = 5, scale = 1)
+plotHPDSigma('ats'); ggsave('figures/3Spp_WB/HDPsigma_ats.png', height = 5, width = 5, scale = 1)
+```
+
+```{r grInt}
+#riverOrderedIn <- factor(c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),labels = c("west brook","wb jimmy","wb mitchell","wb obear"), ordered = T)
+
+grIntMu <- list()
+grIntMu[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$grIntMu, levels = list(iter=NA,season=1:4), label.x="int")
+grIntMu[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$grIntMu, levels = list(iter=NA,season=1:4), label.x="int")
+grIntMu[['ats']] <- array2df(mcmc[['ats']]$sims.list$grIntMu, levels = list(iter=NA,season=1:4), label.x="int")
+
+bw <- 0.05
+ggplot( grIntMu[['bkt']] , aes(int)) +
+  geom_freqpoly(binwidth = bw, size=1.2) +
+  geom_freqpoly(aes(int),binwidth = bw,color = 'brown', data = grIntMu[['bnt']]) +
+  geom_freqpoly(aes(int),binwidth = bw,color = 'lightblue', data = grIntMu[['ats']]) +
+  #xlim(-4.5,-1) +
+  xlim(-0.25,0.75) +
+ # ylim(0,2500) +
+  theme_publication() +
+  facet_wrap(~season )
+
+```
+
+```{r mcmc output analysis-grBeta}
+
+# get all betas in a DF
+grBeta <- list()
+grBeta[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$grBeta, levels = list(iter=NA,beta=1:7,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="int") %>%
+  mutate( species = 'bkt')
+grBeta[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$grBeta, levels = list(iter=NA,beta=1:7,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="int") %>%
+  mutate( species = 'bnt')
+grBeta[['ats']] <- array2df(mcmc[['ats']]$sims.list$grBeta, levels = list(iter=NA,beta=1:7,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="int") %>%
+  mutate( species = 'ats')
+
+grBetaDF1 <- rbind(grBeta[['bkt']],grBeta[['bnt']],grBeta[['ats']])
+
+grBetaBNT <- list()
+grBetaBNT[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$grBetaBNT, levels = list(iter=NA,beta=8:9,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="int") %>%
+  mutate( species = 'bkt')
+grBetaBNT[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$grBetaBNT, levels = list(iter=NA,beta=8:9,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="int") %>%
+  mutate( species = 'bnt')
+grBetaBNT[['ats']] <- array2df(mcmc[['ats']]$sims.list$grBetaBNT, levels = list(iter=NA,beta=8:9,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="int") %>%
+  mutate( species = 'ats')
+
+grBetaBNTDF <- rbind(grBetaBNT[['bkt']],grBetaBNT[['bnt']],grBetaBNT[['ats']])
+
+grBetaATS <- list()
+grBetaATS[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$grBetaATS, levels = list(iter=NA,beta=10,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="int") %>%
+  mutate( species = 'bkt')
+grBetaATS[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$grBetaATS, levels = list(iter=NA,beta=10,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="int") %>%
+  mutate( species = 'bnt')
+grBetaATS[['ats']] <- array2df(mcmc[['ats']]$sims.list$grBetaATS, levels = list(iter=NA,beta=10,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="int") %>%
+  mutate( species = 'ats')
+
+grBetaATSDF <- rbind(grBetaATS[['bkt']],grBetaATS[['bnt']],grBetaATS[['ats']])
+
+grBetaDF <- rbind(grBetaDF1,grBetaBNTDF,grBetaATSDF)
+
+#tmp <- grBetaDF %>% filter(river == 'west brook')
+#save(tmp , file= "data/out/grBetaDFAllIters.RData") #for Ron
+##################################################
+# as range plot
+
+  nRivers <- list()
+  nRivers[['bkt']] <- 4; nRivers[['bnt']] <- 2; nRivers[['ats']] <- 1
+  speciesList <- list('bkt','bnt','ats')
+  
+  probs <- c(0.025,0.1,0.5,0.9,0.975)
+  nSpecies <- 3
+
+
+  q <- grBetaDF %>%
+    group_by(beta,isYOY,season,river,species) %>%
+    summarize(
+      p = list(probs),
+      q = list(quantile(int,probs))
+    ) %>%
+    unnest() %>%
+    spread(key = p, value = q) %>%
+    data.frame() %>%
+    rename( median = X0.5, lo = X0.025, hi = X0.975 )
+    
+  q <- q %>% filter( !(season == 2 & isYOY == 0))
+
+q$riverGG <- factor(q$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("WB","OL","OS","IL"), ordered = T)
+q$seasonGG <- factor(q$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+q$speciesGG <- factor(q$species, levels = c('bkt','bnt','ats'), labels = c("BKT", "BNT", "ATS"), ordered = T)
+q$betaGG <- factor(q$beta, levels = 1:10, 
+                   #levels = c("Temp","Flow","Temp*Flow","Temp^2","Flow^2","BKT","Length","BNT","BNT*BKT","ATS"), # make sure this order matches the nimble code
+                   labels = c("Temp","Flow","Temp*Flow","Temp^2","Flow^2","BKT","Length","BNT","BNT*BKT","ATS"),ordered = T)
+q$parameter = q$speciesGG
+q$parameterOrd <- factor(q$parameter, 
+                         levels = c( "ATS", "BNT", "BKT"), 
+                         labels = c( "WB_ATS", "WB_BNT", "WB_BKT"), ordered = T)
+
+  q <- q %>% filter( !(betaGG == 'ATS' & (riverGG == "OS" | riverGG == "IL" | riverGG == "OL")) )
+  q <- q %>% filter( !(betaGG == 'BNT' & (riverGG == "OS" | riverGG == "IL")) )
+  q <- q %>% filter( !(betaGG == 'BNT*BKT' & (riverGG == "OS" | riverGG == "IL")) )
+#  q <- q %>% filter( !((riverGG == "OS" | riverGG == "IL")) )
+
+  save(q, file= "data/out/allBetas.RData")  #for projections and tables
+
+  #reorder(parameter,median,na.rm=TRUE)
+(min(q$median))
+  (max(q$median))
+#  q[q$median < -0.13,]
+  
+    ggplot(q %>% filter(river == 'west brook', species != 'ats'), aes(x = median, y = parameterOrd, color = factor(species), shape = factor(isYOY))) + 
+        geom_vline(xintercept = 0,color='grey') +
+        theme_publication() +  
+        geom_point(size = 4) +
+        geom_segment(aes(x = median, xend = hi, yend = parameterOrd), 
+        size = 0.5, arrow = arrow(angle = 90, length = unit(0.1, "inches"))) + 
+        geom_segment(aes(x = median, xend = lo, yend = parameterOrd), 
+        size = 0.5,arrow = arrow(angle = 90, length = unit(0.1, "inches"))) +
+     #   xlim(c(-0.15,0.11)) +
+        scale_x_continuous( breaks=c(-0.1,0,0.1)) +
+        xlab("Parameter estimate") + theme(axis.text.y = element_blank(), axis.title.y = element_blank()) +
+        scale_color_grey(start = 0, end = 0.5)  +
+        facet_grid(seasonGG~betaGG) 
+    
+ggsave('figures/3Spp_WB/grBetas.png', height = 8, width = 10)
+
+save(betas,file = 'D:/projects/linkedModels/data/out/nSlopesTidy.RData')
+
+```
+
+```{r table of Ints}
+load(file = "data/out/allInts_bkt.RData") #loads p
+pBKT <- p %>% mutate(species = 'bkt')
+
+load(file = "data/out/allInts_bnt.RData") #loads p
+pBNT <- p %>% mutate(species = 'bnt')
+
+pp <- rbind(pBKT,pBNT)
+
+intsForTable <- pp %>% 
+  filter(river == 'west brook', species %in% c('bkt','bnt')) %>%
+  arrange(species,isYOY,seasonGG) %>%
+  mutate(lo = round(intDown,3),mean = round(int,3),hi = round(intUp,3)) %>%
+  select(species,isYOY,seasonGG,intDown,int,intUp)
+
+write.csv(intsForTable,file = 'D:/projects/linkedModels/data/out/intsForTableAgeGroup.csv')
+```
+
+
+```{r table of betas}
+
+load(file= "data/out/allBetas.RData") #loads q
+
+betasForTable <- q %>% 
+  filter(river == 'west brook', species %in% c('bkt','bnt')) %>%
+  arrange(species,betaGG,isYOY,seasonGG,betaGG) %>%
+  mutate(lo = round(lo,3),median = round(median,3),hi = round(hi,3)) %>%
+  select(species,betaGG,isYOY,seasonGG,betaGG,lo,median,hi)
+
+write.csv(betasForTable,file = 'D:/projects/linkedModels/data/out/betasForTableAgeGroup.csv')
+```
+
+
+```{r mcmc output analysis-grBetaSigma}
+
+# get all betas in a DF
+grBetaSigma <- list()
+grBetaSigma[['bkt']] <- array2df(mcmc[['bkt']]$sims.list$sigmaBeta, levels = list(iter=NA,beta=1:3,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:4]), label.x="int") %>%
+  mutate( species = 'bkt')
+grBetaSigma[['bnt']] <- array2df(mcmc[['bnt']]$sims.list$sigmaBeta, levels = list(iter=NA,beta=1:3,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:2]), label.x="int") %>%
+  mutate( species = 'bnt')
+grBetaSigma[['ats']] <- array2df(mcmc[['ats']]$sims.list$sigmaBeta, levels = list(iter=NA,beta=1:3,isYOY=c(0,1),season=1:4,river=riverOrderedIn[1:1]), label.x="int") %>%
+  mutate( species = 'ats')
+
+grBetaSigmaDF <- rbind(grBetaSigma[['bkt']],grBetaSigma[['bnt']],grBetaSigma[['ats']])
+
+##################################################
+# as range plot
+
+  nRivers <- list()
+  nRivers[['bkt']] <- 4; nRivers[['bnt']] <- 2; nRivers[['ats']] <- 1
+  speciesList <- list('bkt','bnt')
+  
+  probs <- c(0.025,0.1,0.5,0.9,0.975)
+  nSpecies <- 2
+
+
+  q <- grBetaSigmaDF %>%
+    group_by(beta,isYOY,season,river,species) %>%
+    summarize(
+      p = list(probs),
+      q = list(quantile(int,probs))
+    ) %>%
+    unnest() %>%
+    spread(key = p, value = q) %>%
+    data.frame() %>%
+    rename( median = X0.5, lo = X0.025, hi = X0.975 )
+    
+  q <- q %>% filter( !(season == 2 & isYOY == 0))
+
+q$riverGG <- factor(q$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("WB","OL","OS","IL"), ordered = T)
+q$seasonGG <- factor(q$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+q$speciesGG <- factor(q$species, levels = c('bkt','bnt','ats'), labels = c("BKT", "BNT", "ATS"), ordered = T)
+q$betaGG <- factor(q$beta, levels = 1:10, labels = c("Temp", "Flow", "Temp*Flow","Temp^2","Flow^2","BKT","Length","BNT","BNT*BKT","ATS"), ordered = T)
+q$parameter = q$speciesGG
+q$parameterOrd <- factor(q$parameter, 
+                         levels = c( "ATS", "BNT", "BKT"), 
+                         labels = c( "WB_ATS", "WB_BNT", "WB_BKT"), ordered = T)
+
+  q <- q %>% filter( !(betaGG == 'ATS' & (riverGG == "OS" | riverGG == "IL" | riverGG == "OL")) )
+  q <- q %>% filter( !(betaGG == 'BNT' & (riverGG == "OS" | riverGG == "IL")) )
+  q <- q %>% filter( !(betaGG == 'BNT*BKT' & (riverGG == "OS" | riverGG == "IL")) )
+#  q <- q %>% filter( !((riverGG == "OS" | riverGG == "IL")) )
+  
+#reorder(parameter,median,na.rm=TRUE)
+(min(q$median))
+  (max(q$median))
+#  q[q$median < -0.13,]
+  
+    ggplot(q %>% filter(river == 'west brook', species != 'ats'), aes(x = median, y = parameterOrd, color = factor(speciesGG), shape = factor(isYOY))) + 
+        geom_vline(xintercept = 0,color='black') +
+        theme_publication() +  
+        geom_point(size = 3) +
+        geom_segment(aes(x = median, xend = hi, yend = parameterOrd), 
+        size = 0.5, arrow = arrow(angle = 90, length = unit(0.05, "inches"))) + 
+        geom_segment(aes(x = median, xend = lo, yend = parameterOrd), 
+        size = 0.5,arrow = arrow(angle = 90, length = unit(0.05, "inches"))) +
+     #   xlim(c(-0.35,0.5)) +
+        xlab("Parameter estimate") + theme(axis.text.y = element_blank(), axis.title.y = element_blank()) +
+        scale_color_grey(start = 0, end = 0.5)  +
+        facet_grid(seasonGG~betaGG) 
+    
+ggsave('figures/3Spp_WB/grBetaSigmas.png', height = 8, width = 8)
+
+```
+
+```{r ind RE among spp}
+
+grIndRE <- list()
+grIndRE[['bkt']] <- as.data.frame(mcmc[['bkt']]$q50$grIndRE); names(grIndRE[['bkt']]) <- 'value'
+grIndRE[['bnt']] <- as.data.frame(mcmc[['bnt']]$q50$grIndRE); names(grIndRE[['bnt']]) <- 'value'
+grIndRE[['ats']] <- as.data.frame(mcmc[['ats']]$q50$grIndRE); names(grIndRE[['ats']]) <- 'value'
+
+table(mcmc[['bkt']]$q50$grIndRE==0)/length(mcmc[['bkt']]$q50$grIndRE)
+table(mcmc[['bnt']]$q50$grIndRE==0)/length(mcmc[['bnt']]$q50$grIndRE)
+table(mcmc[['ats']]$q50$grIndRE==0)/length(mcmc[['ats']]$q50$grIndRE)
+
+
+ggplot( grIndRE[[1]], aes(value,..density..) ) +
+  geom_freqpoly(binwidth = 0.00025) +
+  geom_freqpoly(aes(value), color = "brown", binwidth = 0.00025, data = grIndRE[[2]]) +
+  geom_freqpoly(aes(value), color = "lightblue", binwidth = 0.00025, data = grIndRE[[3]]) +
+  ylim(c(0,100))
+
+```
+
+```{r ind trajectories}
+
+
+
+```
+
+
+```{r predictions}
+# 
+#####run if get new predictions - takes a while to run ####
+
+ # load('D:/projects/linkedModels/data/out/P_ForMike_bkt.RData')
+ # pBoth$species <- 'bkt'
+ # pAll <- pBoth; rm(pBoth)
+ # 
+ # load('D:/projects/linkedModels/data/out/P_ForMike_bnt.RData')
+ # pBoth$species <- 'bnt'
+ # pAll <- rbind(pAll,pBoth); rm(pBoth)
+ # 
+ # load('D:/projects/linkedModels/data/out/P_ForMike_ats.RData')
+ # pBoth$species <- 'ats'
+ # pAll <- rbind(pAll,pBoth); rm(pBoth)
+ # 
+ # pred <- pAll %>% group_by(species,len,flow,temp,cBKT,cBNT,cATS,isYOY,season,river) %>%
+ #   summarize(meanPredGR = mean(predGr, na.rm=T),
+ #             sdPredGR =     sd(predGr, na.rm=T),
+ #             meanPredGRSigma = mean(predGrSigma, na.rm=T),
+ #             sdPredGRSigma =     sd(predGrSigma, na.rm=T),
+ #             meanPredGRCV = mean(predCV, na.rm=T),
+ #             sdPredGRCV =     sd(predCV, na.rm=T)) %>%
+ #    ungroup()
+ # 
+ # rm(pAll)
+ # save(pred,file = 'D:/projects/linkedModels/data/out/P_ForMike_allMeans.RData')
+
+load('D:/projects/linkedModels/data/out/P_ForMike_allMeans.RData')
+  
+pred <- pred %>% filter( !(isYOY == 0 & season == 2) ) 
+#pred <- pred %>% filter( !(isYOY == 0 & river == 'wb jimmy' & season == 2) )
+#graph function, in analyzeOutputFunctions.R
+
+pred$riverGG <- factor(pred$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+pred$seasonGG <- factor(pred$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+pred$speciesGG <- factor(pred$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+plotPredMeans(pred, "meanPredGR", "len", 0)
+plotPredMeans(pred %>% filter(river == 'west brook'), "meanPredGR", "len", 1)
+
+plotPredMeans(pred, "meanPredGR", "flow", 0)
+plotPredMeans(pred, "meanPredGR", "flow", 1) 
+
+plotPredMeans(pred, "meanPredGR", "temp", 0)
+plotPredMeans(pred, "meanPredGR", "temp", 1)
+
+plotPredMeans(pred, "meanPredGR", "cBKT", 0)
+plotPredMeans(pred, "meanPredGR", "cBKT", 1)
+
+plotPredMeans(pred, "meanPredGR", "cBNT", 0)
+plotPredMeans(pred, "meanPredGR", "cBNT", 1)
+
+plotPredMeans(pred, "meanPredGR", "cATS", 0)
+plotPredMeans(pred, "meanPredGR", "cATS", 1)
+
+plotPredMeans(pred, "meanPredGR", c("temp","flow"), 0)
+plotPredMeans(pred, "meanPredGR", c("temp","flow"), 1)
+
+plotPredMeans(pred, "meanPredGR", c("flow","temp"), 0)
+plotPredMeans(pred, "meanPredGR", c("flow","temp"), 1)
+
+
+ggsave('figures/3Spp_WBtmp.png', width = 9, height = 7, units='in')
+```
+
+```{r mean prediction graphs for meanPredGR}
+
+all <- c('len','temp','flow','cBKT','cBNT','cATS')
+allLabels <- c('Length (mm)','Temperature (C)','Flow (m3/s)','Brook Trout abundance','Brown Trout abundance','Atlantic Salmon abundance')
+
+all <- c('len','cBKT','temp','cBNT','flow','cATS')
+allLabels <- c('Length (mm)','Brook Trout abundance','Stream temperature (C)','Brown Trout abundance','Stream flow (m3/s)','Atlantic Salmon abundance')
+
+remFacetLabel <- c(3,4,5,6)
+
+selectSingleVar <- function(p, all, depVar, varsToPlot, isYOYGG){
+  
+  notPlot <- NA
+  notPlot[1] <- all[!(all %in% varsToPlot)][1]
+  notPlot[2] <- all[!(all %in% varsToPlot)][2]
+  notPlot[3] <- all[!(all %in% varsToPlot)][3]
+  notPlot[4] <- all[!(all %in% varsToPlot)][4]
+  notPlot[5] <- all[!(all %in% varsToPlot)][5]
+
+  pGG <- p %>% filter(isYOY == isYOYGG, 
+                        eval(as.name(notPlot[1])) == 0, 
+                        eval(as.name(notPlot[2])) == 0, 
+                        eval(as.name(notPlot[3])) == 0,                                         
+                        eval(as.name(notPlot[4])) == 0, 
+                        eval(as.name(notPlot[5])) == 0
+                      )#%>%
+              # distinct(species, isYOY, riverGG, seasonGG, speciesGG, .keep_all = TRUE)
+
+  return(pGG)  
+}
+
+##### by species 
+
+isYOYGG <- 0
+riverGGToPlot <- "West Brook" #"Open Large"
+outputToPlot <- "meanPredGR"
+
+ggSingle <- list()
+singleDat <- list()
+for(i in 1:length(all))
+  #https://stackoverflow.com/questions/31993704/storing-ggplot-objects-in-a-list-from-within-loop-in-r
+      local({ i <- i
+  singleDat[[i]] <- selectSingleVar(pred, all, outputToPlot, all[i], isYOYGG)
+  print(c(i,all[i]))
+ # print(str(singleDat[[i]]))
+  
+  tmp <- singleDat[[i]] %>% filter(riverGG == riverGGToPlot)
+  ggSingle[[i]] <<- ggplot( tmp %>% filter(species != 'ats'), aes( eval(as.name(all[i])), eval(as.name(outputToPlot)), color=speciesGG ) ) +
+      geom_line( size = 1.225 ) +
+      theme_bw() +
+      theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(), 
+            axis.title.y = element_blank(),
+            legend.position="none") +
+      geom_hline(yintercept = 0) +
+      ylim(-0.15,0.8) +
+      scale_x_continuous(allLabels[i]) +
+      scale_color_grey(start = 0, end = 0.5)  +
+      facet_grid(~seasonGG)
+  
+  if( i %in% remFacetLabel ) {
+    ggSingle[[i]] <<- ggSingle[[i]] +
+    theme(
+      strip.background = element_blank(),
+      strip.text.x = element_blank()
+    )
+  }
+})
+
+grid.arrange(grobs=ggSingle, left = "Growth rate (mm/d)")
+# save from rStudio as export, width=900, height=500
+# ggsave(gridPred,'figures/3Spp_WB/predGRYOY1.png', width = 9, height = 7, units='in')
+
+```
+
+```{r mean prediction graphs for meanPredGRSigma}
+
+all <- c('temp','flow')
+allLabels <- c('Stream temperature (C)','Stream flow (m3/s)')
+
+remFacetLabel <- c(2)
+
+selectSingleVarSigma <- function(p, all, depVar, varsToPlot, isYOYGG){
+  
+  notPlot <- NA
+  notPlot[1] <- all[!(all %in% varsToPlot)][1]
+
+
+  pGG <- p %>% filter(isYOY == isYOYGG, 
+                        eval(as.name(notPlot[1])) == 0,
+                      len == 0, cBKT == 0, cBNT == 0, cATS == 0
+                      )#%>%
+              # distinct(species, isYOY, riverGG, seasonGG, speciesGG, .keep_all = TRUE)
+
+  return(pGG)  
+}
+
+##### by species 
+
+isYOYGG <- 1
+riverGGToPlot <- "West Brook" #
+outputToPlot <- "meanPredGRSigma"
+
+ggSingle <- list()
+singleDat <- list()
+for(i in 1:length(all))
+  #https://stackoverflow.com/questions/31993704/storing-ggplot-objects-in-a-list-from-within-loop-in-r
+      local({ i <- i
+  singleDat[[i]] <- selectSingleVarSigma(pred, all, outputToPlot, all[i], isYOYGG)
+  print(c(i,all[i]))
+ # print(str(singleDat[[i]]))
+  
+  tmp <- singleDat[[i]] %>% filter(riverGG == riverGGToPlot, species != 'ats')
+  ggSingle[[i]] <<- ggplot( tmp, aes( eval(as.name(all[i])), eval(as.name(outputToPlot)), color=speciesGG ) ) +
+      geom_line( size = 1.225 ) +
+      theme_bw() +
+      theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(), 
+            axis.title.y = element_blank(),
+            legend.position="none") +
+      geom_hline(yintercept = 0) +
+    #  ylim(-0.15,0.8) +
+      scale_x_continuous(allLabels[i]) +
+      scale_color_grey(start = 0, end = 0.5)  +
+      facet_grid(~seasonGG)
+  
+  if( i %in% remFacetLabel ) {
+    ggSingle[[i]] <<- ggSingle[[i]] +
+    theme(
+      strip.background = element_blank(),
+      strip.text.x = element_blank()
+    )
+  }
+})
+
+# add thrid row to graph for interaction of tem and flow?
+
+# run this and export
+grid.arrange(grobs=ggSingle, left = "Standard deviation of growth rate (mm/d)")
+
+# 0 = 875,600
+# 1 = 875,500
+
+#ggsave(ggCV, paste0('figures/3Spp_WBpredGRCV_YOY',isYOYGG,'_',riverGGToPlot,'.png'), width = 9, height = 7, units='in')
+
+
+
+```
+
+```{r flow*temp interaction plots}
+
+###############################
+# flow*temp interaction plots
+isYOYGG <- 0
+riverGGToPlot <- "West Brook" #"Open Large" #
+outputToPlot <- "meanPredGRSigma" #"meanPredGR" #
+
+interact <- pred %>% filter(isYOY == isYOYGG,
+                            riverGG == riverGGToPlot,
+                            len == 0, cBKT == 0, cBNT == 0, cATS == 0 ) %>%
+                     mutate( temp_spp = paste0(temp,speciesGG))
+
+    ggplot( interact %>% filter(species != 'ats'), aes( flow, eval(as.name(outputToPlot)), group=temp_spp, linetype=speciesGG ) ) +
+      geom_line( aes(alpha = temp + 3), size = 1.225 ) +
+      theme_bw() +
+      theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(), 
+          #  axis.title.y = element_blank()
+            legend.position="none"
+            ) +
+      geom_hline(yintercept = 0) +
+    #  ylim(-0.15,0.8) +
+      scale_x_continuous('Stream flow') +
+      scale_y_continuous("Standard deviation of growth rate (mm/d)") +
+      #scale_color_manual(values=c('blue','darkgreen'))  +
+      facet_grid(~seasonGG)
+
+
+#yoy0 = 875,350
+#yoy1 = 875,280
+```
+
+
+```{r bkt*bnt interaction plots}
+
+###############################
+# flow*temp interaction plots
+isYOYGG <- 1
+riverGGToPlot <- "West Brook" #
+outputToPlot <- "meanPredGR" #"meanPredGRSigma"
+
+interact <- pred %>% filter(isYOY == isYOYGG,
+                            riverGG == riverGGToPlot,
+                            len == 0, temp == 0, flow == 0, cATS == 0 ) %>%
+                     mutate( bnt_spp = paste0(cBNT,speciesGG))
+
+    ggplot( interact %>% filter(species != 'ats'), aes( cBKT, eval(as.name(outputToPlot)), group=bnt_spp, linetype=speciesGG ) ) +
+      geom_line( aes(alpha = cBNT + 3), size = 1.225 ) +
+      theme_bw() +
+      theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(), 
+           # axis.title.y = element_blank()
+            legend.position="none"
+            ) +
+      geom_hline(yintercept = 0) +
+    #  ylim(-0.15,0.8) +
+      scale_x_continuous('Brook Trout abundance') +
+      scale_y_continuous("Growth rate (mm/d)") +
+      facet_grid(~seasonGG)
+    
+# for saving from export
+#yoy0 = 875,350
+#yoy1 = 875,275
+
+
+```
+
+```{r projections}
+# run 'Load data' chunk at top to get the 'mcmc' object
+
+#data for running the simulation
+simData <- list(
+  nReps = 100, #num of mcmc iterations to grab
+  numInd = 500 , # number of individual to simulate
+  nOccYOY = 3,
+  nOccAdult = 7,
+  riverIndex = 1, #Levels: west brook < wb jimmy < wb mitchell < wb obear
+  minSD = -1.5, #range and step for independent variable values in the sim
+  maxSD = 1.5, 
+  step = 1.5
+)
+simData$nOcc <- simData$nOccYOY + simData$nOccAdult
+simData$indVarSeq = seq(simData$minSD,simData$maxSD,simData$step)
+
+stats3Spp <- grStats3Spp <- anov <- elapsed <- lm <- relImp <- list()
+spp <- c('bkt','bnt') #,'ats')
+
+for( speciesForProj in spp ){
+
+  # get mean on mean length by cohort for the fall yoy sample
+  obsLenStats <-  
+    ddGIn2[[speciesForProj]] %>%
+      group_by(cohort,ageInSamples) %>%
+      summarise(lenMean = mean(observedLength, na.rm=TRUE),
+                lenSD = sd(observedLength, na.rm=TRUE)) %>%
+      filter(ageInSamples == 1) %>%
+      ungroup() %>%
+      summarise(lenMeanMean = mean(lenMean, na.rm=TRUE),
+                lenSDMean = mean(lenSD, na.rm=TRUE)) 
+  
+
+  simData$species = speciesForProj
+  simData$meanInit = obsLenStats$lenMeanMean
+  simData$sdInit = obsLenStats$lenSDMean
+  simData$nSamplesAvail = mcmcInfo$nChains * mcmcInfo$nSamples
+  
+  simData <- updateSimData(simData) # add #season, itersForSim etc data to simData
+  nB <- getNBetas() # get number of betas from mcmc[]
+  m <- createMatrices()
+  
+  indVars <- getIndVars() # get independent variables table, -1.5, 0, 1.5
+  
+  startTime <- Sys.time()
+  sizeStats <- sizeStats2 <- grStats <- grStats2 <- NULL
+  #loop over conditions
+  for(testRow in indVars$rowNum){
+    project <- projectSizes(m,simData,testRow)
+    
+    sizeMat <- project$sizeMat
+    grMat <- project$grMat
+    
+    sizeStats1 <- summarizeLens(sizeMat,testRow)
+    sizeStats <- rbind(sizeStats,sizeStats1[[1]]) #means over individuals (grouped by iter, occ)
+    sizeStats2 <- rbind(sizeStats2,sizeStats1[[2]]) #means by occ of means over individuals (grouped by occ)
+    
+    grStats1 <- summarizeGRs(grMat,testRow)
+    grStats <- rbind(grStats,grStats1[[1]]) #means over individuals (grouped by iter, occ)
+    grStats2 <- rbind(grStats2,grStats1[[2]]) #means by occ of means over individuals (grouped by occ)
+  }
+  endTime <- Sys.time()
+  (elapsed[[speciesForProj]] <- endTime - startTime)
+  
+  stats3Spp[[speciesForProj]] <- list( sizeStats,sizeStats2 )
+  grStats3Spp[[speciesForProj]] <- list( grStats,grStats2 )
+
+  # lm[[speciesForProj]] <- lm( lenMean ~ temp + flow + bkt + bnt + ats + temp * flow + temp^2 + flow^2 + bnt*bkt, data = sizeStats %>% filter(occ == (simData$nOcc)))
+  # 
+  # relImp[[speciesForProj]] <- calc.relimp(lm[[speciesForProj]], type = c("lmg"), rela = TRUE)
+  #   
+  # anov[[speciesForProj]] <- anova( lm[[speciesForProj]] )
+
+}
+
+#projOut <- list(stats3Spp, lm, relImp, anov, elapsed, simData)
+save( stats3Spp, grStats3Spp, elapsed, simData, file = paste0('D:/projects/linkedModels/data/out/projectionOut_N',simData$nReps,'.RData'))
+
+# if not re-running the sim
+# load( file = 'D:/projects/linkedModels/data/out/projectionOut.RData')
+# load( file = paste0('D:/projects/linkedModels/data/out/projectionOut_N',simData$nReps,'.RData'))
+# spp <- c('bkt','bnt','ats')
+
+# raw sim data figs - size
+ggplot(stats3Spp[['bkt']][[1]] %>% filter(ats == 0, bkt == 0, bnt == 0), aes(as.numeric(occ),lenMean)) +
+  geom_jitter(aes(color = factor(ats))) +
+  #geom_smooth(aes(color = factor(temp), linetype = factor(flow)))+#(bnt + 2)/4 )) +
+  geom_smooth()+#(bnt + 2)/4 )) +
+  geom_smooth(color = 'green', data = stats3Spp[['bnt']][[1]] %>% filter(ats == 0, bkt == 0, bnt == 0)) +
+  facet_grid(temp ~ flow)
+
+
+########################
+# raw sim data figs - gr
+ggplot(grStats3Spp[['bkt']][[1]] %>% filter(ats == 0, bkt == 0, bnt == 0), aes(as.numeric(occ),grMean)) +
+  geom_jitter(aes(color = factor(ats)), width = 0.2, size = 0.5) +
+  #geom_smooth(aes(color = factor(temp), linetype = factor(flow)))+#(bnt + 2)/4 )) +
+  #geom_smooth()+#(bnt + 2)/4 )) +
+  geom_jitter(color = 'darkblue', width = 0.1, size = 0.5, data = grStats3Spp[['bnt']][[1]] %>% filter(ats == 0, bkt == 0, bnt == 0)) +
+  facet_grid(temp ~ flow)
+
+
+```
+
+```{r RI across all - use this for paper GROWTH RATE}
+
+# relative proportion stats with occ in the lm 
+grStats3Spp[['bkt']][[1]]$season <- as.factor(c(3,4,1,2,3,4,1,2,3,4))
+grStats3Spp[['bkt']][[1]]$temp2 <- grStats3Spp[['bkt']][[1]]$temp^2
+grStats3Spp[['bkt']][[1]]$flow2 <- grStats3Spp[['bkt']][[1]]$flow^2
+
+
+indepVarVals <- c(-1.5,0,1.5) # make sure symetrical around 0
+indepVars <- c('temp', 'flow', 'temp:flow', 'bkt', 'bnt', 'ats', 'bkt:bnt')
+rIBKTBNTAll <- NULL
+# loop over occs
+for(rep in 1:simData$nReps){
+
+  print(rep)
+  
+  datOccBKTAll <- grStats3Spp[['bkt']][[1]] %>% filter(iter == rep, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals)
+  lmAllBKT <- lm( grMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt + occ, data = datOccBKTAll) 
+  relImpAllBKT <- calc.relimp(lmAllBKT, type = c("lmg"), rela = TRUE)
+  
+  datOccBNTAll <- grStats3Spp[['bnt']][[1]] %>% filter(iter == rep, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals)
+  lmAllBNT <- lm( grMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt + occ, data = datOccBNTAll)
+  relImpAllBNT <- calc.relimp(lmAllBNT, type = c("lmg"), rela = TRUE)
+  
+  lmgBKT <- relImpAllBKT$lmg[(names(relImpAllBKT$lmg) %in% indepVars)]
+  rBKT <- lmgBKT / sum(lmgBKT) 
+  
+  lmgBNT <- relImpAllBNT$lmg[(names(relImpAllBNT$lmg) %in% indepVars)]
+  rBNT <- lmgBNT / sum(lmgBNT) 
+  
+  rIBKTBNTAll <- rbind(rIBKTBNTAll, data.frame(cbind(rBKT,rBNT)) %>% 
+                      rownames_to_column() %>% 
+                      gather(key = rowname) %>% 
+                      mutate(var = rep(1:length(indepVars),2),
+                             varText = rep(names(rBKT),2),
+                             iter = rep)
+                    )
+}
+
+rIBKTBNTAllMeans <- rIBKTBNTAll %>%
+  group_by(rowname, var) %>%
+  summarise(rIMean = mean(value),
+            rISd = sd(value),
+            rIUpperCI = quantile(value, 0.95))
+
+dodge <- position_dodge(width=0.9)
+ggplot(rIBKTBNTAllMeans, aes(factor(var),rIMean, fill = factor(rowname, levels = c('rBKT','rBNT'), ordered = TRUE))) +
+  geom_errorbar(aes(ymin = rIMean - 0.001, ymax = rIUpperCI), width = 0.25, position=dodge) +
+  geom_col(position=dodge) +
+  scale_x_discrete('Parameter',
+                   labels = c('1' = 'Temperature','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")) +
+  scale_fill_grey() +
+  scale_y_continuous('Relative proportion of variance explained') +
+  theme_publication() +
+  geom_hline(yintercept = 0) +
+  theme( legend.position = 'none')
+
+ggsave(paste0('figures/3Spp_WB/relImpOccMeanModAll_GR_N',simData$nReps,'.png'), width = 9, height = 7, units='in')
+
+# for MS
+rIBKTBNTAllMeans
+#    rowname   var  rIMean    rISd rIUpperCI
+#    <chr>   <int>   <dbl>   <dbl>     <dbl>
+#  1 rBKT        1 0.132   0.0251     0.170 
+#  2 rBKT        2 0.670   0.0369     0.731 
+#  3 rBKT        3 0.0116  0.0118     0.0330
+#  4 rBKT        4 0.0346  0.0256     0.0703
+#  5 rBKT        5 0.0951  0.0284     0.140 
+#  6 rBKT        6 0.0441  0.0263     0.0919
+#  7 rBKT        7 0.0121  0.0155     0.0410
+#  8 rBNT        1 0.106   0.0212     0.141 
+#  9 rBNT        2 0.568   0.0364     0.623 
+# 10 rBNT        3 0.0885  0.0223     0.124 
+# 11 rBNT        4 0.00518 0.00556    0.0163
+# 12 rBNT        5 0.122   0.0285     0.169 
+# 13 rBNT        6 0.0314  0.0176     0.0624
+# 14 rBNT        7 0.0782  0.0270     0.122 
+
+rIBKTBNTAll %>%
+  mutate(isEnvVar = ifelse(varText %in% c('temp','flow','temp:flow'), 1,0)) %>%
+  group_by(rowname,isEnvVar) %>%
+  summarize(meanMean = mean(value),
+            sumMean = sum(value),
+            sdMean = sd(value))
+
+#   rowname isEnvVar meanMean sumMean sdMean
+#   <chr>      <dbl>    <dbl>   <dbl>  <dbl>
+# 1 rBKT           0   0.0383    15.3 0.0402
+# 2 rBKT           1   0.282     84.7 0.279 
+# 3 rBNT           0   0.0736    29.4 0.0484
+# 4 rBNT           1   0.235     70.6 0.239 
+
+#bkt
+.282/(.282+.038) # 0.88125
+#bnt
+.235/(.235+.074) # 0.7605178
+.881/.76 # 1.159211
+```
+
+```{r RI across yoy/adults - use this for paper GROWTH RATE}
+
+# relative proportion stats with occ in the lm 
+grStats3Spp[['bkt']][[1]]$season <- as.factor(c(3,4,1,2,3,4,1,2,3,4))
+grStats3Spp[['bkt']][[1]]$temp2 <- grStats3Spp[['bkt']][[1]]$temp^2
+grStats3Spp[['bkt']][[1]]$flow2 <- grStats3Spp[['bkt']][[1]]$flow^2
+
+
+ageForRI <-  'yoy' #'yoy' or 'adult'
+occs <- if (ageForRI == 'yoy') 1:3 else 4:10
+indepVarVals <- c(-1.5,0,1.5) # make sure symetrical around 0
+indepVars <- c('temp', 'flow', 'temp:flow', 'bkt', 'bnt', 'ats', 'bkt:bnt')
+rIBKTBNT <- NULL
+# loop over occs
+for(rep in 1:simData$nReps){
+
+  print(rep)
+  
+  datOccBKT <- grStats3Spp[['bkt']][[1]] %>% filter(iter == rep, occ %in% occs, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals)
+  lmAllBKT <- lm( grMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt + occ, data = datOccBKT) 
+  relImpAllBKT <- calc.relimp(lmAllBKT, type = c("lmg"), rela = TRUE)
+  
+  datOccBNT <- grStats3Spp[['bnt']][[1]] %>% filter(iter == rep, occ %in% occs, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals)
+  lmAllBNT <- lm( grMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt + occ, data = datOccBNT)
+  relImpAllBNT <- calc.relimp(lmAllBNT, type = c("lmg"), rela = TRUE)
+  
+  lmgBKT <- relImpAllBKT$lmg[(names(relImpAllBKT$lmg) %in% indepVars)]
+  rBKT <- lmgBKT / sum(lmgBKT) 
+  
+  lmgBNT <- relImpAllBNT$lmg[(names(relImpAllBNT$lmg) %in% indepVars)]
+  rBNT <- lmgBNT / sum(lmgBNT) 
+  
+  rIBKTBNT <- rbind(rIBKTBNT, data.frame(cbind(rBKT,rBNT)) %>% 
+                      rownames_to_column() %>% 
+                      gather(key = rowname) %>% 
+                      mutate(var = rep(1:length(indepVars),2),
+                             varText = rep(names(rBKT),2),
+                             iter = rep)
+                    )
+}
+
+rIBKTBNTMeans <- rIBKTBNT %>%
+  group_by(rowname, var) %>%
+  summarise(rIMean = mean(value),
+            rISd = sd(value),
+            rIUpperCI = quantile(value, 0.95))
+
+dodge <- position_dodge(width=0.9)
+ggplot(rIBKTBNTMeans, aes(factor(var),rIMean, fill = factor(rowname, levels = c('rBKT','rBNT'), ordered = TRUE))) +
+  geom_errorbar(aes(ymin = rIMean - 0.001, ymax = rIUpperCI), width = 0.25, position=dodge) +
+  geom_col(position=dodge) +
+  scale_x_discrete('Parameter',
+                   labels = c('1' = 'Temperature','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")) +
+  scale_fill_grey() +
+  scale_y_continuous('Relative proportion of variance explained') +
+  theme_publication() +
+  geom_hline(yintercept = 0) +
+  theme( legend.position = 'none')
+
+ggsave(paste0('figures/3Spp_WB/relImpOccMeanModWOcc_GR',simData$nReps,'_',ageForRI,'.png'), width = 9, height = 7, units='in')
+
+#    rowname   var  rIMean    rISd rIUpperCI
+#    <chr>   <int>   <dbl>   <dbl>     <dbl>
+#  1 rBKT        1 0.516   0.0639     0.619 
+#  2 rBKT        2 0.123   0.0332     0.175 
+#  3 rBKT        3 0.0209  0.0222     0.0568
+#  4 rBKT        4 0.0579  0.0307     0.100 
+#  5 rBKT        5 0.193   0.0487     0.273 
+#  6 rBKT        6 0.0539  0.0374     0.126 
+#  7 rBKT        7 0.0362  0.0303     0.0889
+#  8 rBNT        1 0.154   0.0566     0.253 
+#  9 rBNT        2 0.0106  0.00999    0.0281
+# 10 rBNT        3 0.140   0.0479     0.208 
+# 11 rBNT        4 0.00421 0.00467    0.0135
+# 12 rBNT        5 0.463   0.0780     0.598 
+# 13 rBNT        6 0.173   0.0676     0.294 
+# 14 rBNT        7 0.0547  0.0340     0.121
+
+
+# get isEnvVar sens for yoy and adults - need to rerun the above code for each age
+rIBKTBNT %>%
+  mutate(isEnvVar = ifelse(varText %in% c('temp','flow','temp:flow'), 1,0)) %>%
+  group_by(rowname,isEnvVar) %>%
+  summarize(meanMean = mean(value),
+            sumMean = sum(value),
+            sdMean = sd(value)) %>%
+  mutate(age = ageForRI)
+
+#   rowname isEnvVar meanMean sumMean sdMean age  
+#   <chr>      <dbl>    <dbl>   <dbl>  <dbl> <chr>
+# 1 rBKT           0   0.0769    30.8 0.0763 yoy  
+# 2 rBKT           1   0.231     69.2 0.209  yoy  
+# 3 rBNT           0   0.165     66.2 0.185  yoy  
+# 4 rBNT           1   0.113     33.8 0.0888 yoy
+
+#   rowname isEnvVar meanMean sumMean sdMean age  
+#   <chr>      <dbl>    <dbl>   <dbl>  <dbl> <chr>
+# 1 rBKT           0   0.0287    11.5 0.0272 adult
+# 2 rBKT           1   0.295     88.5 0.377  adult
+# 3 rBNT           0   0.0411    16.4 0.0285 adult
+# 4 rBNT           1   0.279     83.6 0.343  adult
+
+
+
+
+# ratio of env/(env+spp) means - yoy
+.231/(.231 + .0769) # bkt 0.7502436
+.165/(.165 + .113) # bnt 0.5935252
+
+# ratio of env/(env+spp) means - adult
+.295/(.295 + .0287) # bkt 0.9113377
+.279/(.279 + .0411) # bnt 0.8716026
+
+.75/.593 # 1.26
+.911/.872 # 1.04
+##############################################################
+############################################################
+
+# projOut <- list(stats3Spp, lm, relImp, anov, elapsed)
+load(paste0('D:/projects/linkedModels/data/out/projectionOut_N',simData$nReps,'.RData'))
+
+#spp <- c('bkt','bnt','ats')
+# scenarios
+# Plot subsets of the simulations
+#means for each iter
+stats1 <- rbind(data.frame(grStats3Spp[['bkt']][[1]]), 
+                data.frame(grStats3Spp[['bnt']][[1]]), 
+                data.frame(grStats3Spp[['ats']][[1]])) %>%
+          mutate(spp = rep(spp, each = nrow(grStats3Spp[['bkt']][[1]])))
+
+#means for each occ
+stats2 <- rbind(data.frame(grStats3Spp[['bkt']][[2]]), 
+                data.frame(grStats3Spp[['bnt']][[2]]), 
+                data.frame(grStats3Spp[['ats']][[2]])) %>%
+          mutate(spp = rep(spp, each = nrow(grStats3Spp[['bkt']][[2]])))
+
+ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, ats == 0), aes(occ,grMeanMean, group = spp)) +
+  geom_point(aes(color = spp) ) +
+  geom_line( aes(color = spp) ) +
+  geom_point(aes(color = spp), data = stats2 %>% filter(temp == 1.5, flow == 0, bkt == 0, bnt == 0, ats == 0) ) +
+  geom_line( aes(color = spp), data = stats2 %>% filter(temp == 1.5, flow == 0, bkt == 0, bnt == 0, ats == 0), linetype = 2 ) 
+  
+ 
+ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, ats == 0), aes(occ,grMeanMean, group = spp)) +
+  geom_point(aes(color = spp) ) +
+  geom_line( aes(color = spp) ) +
+  geom_point(aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 1.5, bkt == 0, bnt == 0, ats == 0) ) +
+  geom_line( aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 1.5, bkt == 0, bnt == 0, ats == 0), linetype = 2 ) 
+   
+ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, ats == 0), aes(occ,grMeanMean, group = spp)) +
+  geom_point(aes(color = spp) ) +
+  geom_line( aes(color = spp) ) +
+  geom_point(aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 0, bkt == 1.5, bnt == 0, ats == 0) ) +
+  geom_line( aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 0, bkt == 1.5, bnt == 0, ats == 0), linetype = 2 ) 
+   
+
+# trajectories across indep var values for different combinations. Trying to relate to relImp results
+#temp
+p1 <- ggplot( stats2 %>% filter(flow == 0, bkt == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(temp))) +
+  geom_line(aes(color = factor(temp))) +
+  geom_point(aes(color = factor(temp))) +
+  facet_wrap(~spp) 
+
+#flow
+p2 <- ggplot( stats2 %>% filter(temp == 0, bkt == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(flow))) +
+  geom_line(aes(color = factor(flow))) +
+  geom_point(aes(color = factor(flow))) +
+  facet_wrap(~spp)  
+
+#bkt
+p3 <- ggplot( stats2 %>% filter(temp == 0, flow == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(bkt))) +
+  geom_line(aes(color = factor(bkt))) +
+  geom_point(aes(color = factor(bkt))) +
+  facet_wrap(~spp) 
+
+#bnt
+p4 <- ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(bnt))) +
+  geom_line(aes(color = factor(bnt))) +
+  geom_point(aes(color = factor(bnt))) +
+  facet_wrap(~spp)
+
+#ats
+p5 <- ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(ats))) +
+  geom_line(aes(color = factor(ats))) +
+  geom_point(aes(color = factor(ats))) +
+  facet_wrap(~spp)
+
+multiplot(p1, p2, p3, p4, p5, cols=2) # multiplot function is below
+
+#temp*flow
+ggplot( stats2 %>% filter(bkt == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(flow))) +
+  geom_line(aes(color = factor(flow))) +
+  geom_point(aes(color = factor(flow))) +
+  facet_grid(temp~spp)
+
+#bkt*bnt
+ggplot( stats2 %>% filter(temp == 0, flow == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,grMeanMean, group = factor(bnt))) +
+  geom_line(aes(color = factor(bnt))) +
+  geom_point(aes(color = factor(bnt))) +
+  facet_grid(bkt~spp)
+
+
+
+
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+
+
+# size=100
+# gr=10
+# sd=1
+# mean(rnorm(10000,size+gr,sd))
+# mean(size+rnorm(10000,gr,sd))
+
+
+
+
+
+
+```
+
+```{r RI by occ - use for paper GROWTH}
+
+# make figures of relative importance for each sampling occasion
+rIAll <- cAll <- NULL
+
+for(ageGroupLoop in 0:1){
+  for(seasonLoop in 1:4){
+#for( occSelected in 1:(simData$nOcc - 1)){
+  if(ageGroupLoop == 0 & seasonLoop == 2) next  
+    
+  lmAll <- ggRIAll <- relImpAll <- coefsAll <- list()
+
+  for(spp1 in spp){
+    print(c(ageGroupLoop, seasonLoop, spp1))  
+    
+    datAgeGroupSeason <- grStats3Spp[[spp1]][[1]] %>%
+         mutate(ageGroup = ifelse(occ %in% 1:3, 0, 1),
+         season = rep(c(3,4,1,2,3,4,1,2,3,4), nrow(grStats3Spp[[spp1]][[1]])/simData$nOcc))
+    
+      lmAll[[spp1]] <- lm( grMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt, data = datAgeGroupSeason %>% filter(ageGroup == ageGroupLoop, season == seasonLoop, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals))
+
+      relImpAll[[spp1]] <- calc.relimp(lmAll[[spp1]], type = c("lmg"), rela = TRUE)
+      
+      coefsAll[[spp1]] <- lmAll[[spp1]]$coefficients
+  }
+  
+  # make bar chart of relative importance of each variable for each spp
+  rI <- cbind(data.frame(bktRI = relImpAll[['bkt']]$lmg), 
+              data.frame(bntRI = relImpAll[['bnt']]$lmg)) %>%
+        rownames_to_column() %>% 
+        gather(key=rowname) %>% 
+        mutate(var = rep(1:length(relImpAll[['bkt']]$lmg),length(spp)),
+               ageGroup = ageGroupLoop,
+               season = seasonLoop
+               )
+  rI$varText <- rep(names(relImpAll[['bkt']]$lmg),2)
+  
+  rIAll <- rbind(rIAll,rI)
+  
+  #rIAll$age <- ifelse(rIAll$occ %in% 1:2, 0, ifelse(rIAll$occ %in% 3:6, 1, 2))
+
+  }  
+}
+
+######################################################
+# relImp over occasions for each spp and parameter
+labels <- c('1' = 'Temp','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")
+
+# ggplot(rIAll %>% filter(rowname %in% c('bktRI','bntRI')), aes((occ), value, color = factor(rowname))) +
+#   geom_point() +
+#   geom_line() +
+#   geom_vline(xintercept = 2.5) +
+#   scale_x_continuous('Sampling occasion',
+#                     breaks = 1:9,
+#                     labels = c('Autumn','Winter','Spring','Summer', 'Autumn','Winter','Spring','Summer', 'Autumn')
+#                     ) +
+#   scale_y_continuous('Relative proportion of variance explained') +
+#   theme_publication() +
+#   theme(axis.text.x  = element_text(angle=90, vjust=0.25, size=10)) +
+#   facet_wrap(~ var, labeller=labeller(var = labels))
+# 
+# ggsave(paste0('figures/3Spp_WB/relImpOccAll_GR.png'), width = 11, height = 9, units='in')
+
+
+rIAllMinus <- rIAll %>% mutate(value2 = ifelse(rowname == 'bktRI',value * -1, value))
+
+labelsSeason <- c('1'='Autumn','2'='Winter','3'='Spring','4'='Summer','5'='Autumn','6'='Winter','7'='Spring','8'='Summer','9'='Autumn')
+labelsSeason2 <- c('1'='Spring','2'='Summer','3'='Autumn','4'='Winter')
+labelAge <- c('0' = 'Growth year 0/1', '1' = 'Growth Year 1+')
+
+### get prop env
+summ1 <- rIAll %>%
+  mutate(isEnvVar = ifelse(varText %in% c('temp','flow','temp:flow'), 1,0)) %>%
+  group_by(rowname,isEnvVar,ageGroup, season) %>%
+  summarize(mean=mean(value)) %>%
+  arrange(ageGroup,season,rowname,isEnvVar)
+
+summ2 <- summ1 %>%
+  group_by(rowname,ageGroup,season) %>%
+  summarize(sum=sum(mean))
+
+summ1a <- left_join(summ1,summ2) %>%
+  mutate(prop = mean/sum,
+         xAxisLoc = ifelse(rowname == 'bktRI',-0.85, 0.85)) %>%
+  filter(isEnvVar == 1) 
+###
+
+####
+# add in betas to rIAllMinus
+load("D:/projects/linkedModels/data/out/allBetas.RData") #loads df 'q'
+qFig1 <- q %>% filter(riverGG == 'WB', species %in% c('bkt','bnt'))
+qFig1$season <- as.numeric(as.character(qFig1$season))
+qFig1$isYOY <- as.numeric(as.character(qFig1$isYOY))
+qFig <- qFig1 %>%
+  mutate( varText = tolower(betaGG)) %>%
+  mutate( varText = ifelse(varText == 'temp*flow','temp:flow', varText)) %>%
+  mutate( varText = ifelse(varText == 'bnt*bkt','bkt:bnt', varText)) %>%
+  select(isYOY,season,species,median,varText)
+
+# prepare rIAllMinus
+rIAllMinusQ <- rIAllMinus %>%
+  mutate(species = str_sub(rowname,1,3),
+         isYOY = ageGroup) %>%
+  left_join(qFig) %>%
+  mutate(median01 = ifelse(median > 0, 1, 0),
+         medianBreaks = cut(median, breaks = c(-1, -0.025, 0 , 0.025, 1)))
+
+#
+
+ggplot(rIAllMinus, aes(var, y = value2, fill = rowname)) +
+  geom_col() +
+  coord_flip() +
+  scale_x_reverse('Variable', 
+                     breaks = 1:7,
+                     labels = c('Temp', 'Flow', 'Bkt', 'Bnt','Ats','Temp*Flow',  "Bkt*Bnt")) +
+  scale_y_continuous('Relative proportion of variance explained',
+                     breaks = c(-1.0, -0.5, 0.0, 0.5),
+                     labels = c('1.0', '0.5', '0.0', '0.5')) +
+  geom_text(data = summ1a, aes(y=xAxisLoc, x=7, label=paste(round(prop,2)), color=rowname),size = 5) +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  theme_publication() +
+  scale_fill_grey(start = 0.15, end = 0.75) +
+  facet_grid(season ~ ageGroup, labeller=labeller(season = labelsSeason2, ageGroup = labelAge))
+
+ggsave(paste0('figures/3Spp_WB/relImpOccAll_GR_HorizBars.png'), width = 11, height = 9, units='in')
+
+# bars colered by beta
+ggplot(rIAllMinusQ, aes(var, y = value2)) +
+  geom_col(aes(fill = median)) +
+  coord_flip() +
+  scale_x_reverse('Variable', 
+                     breaks = 1:7,
+                     labels = c('Temp', 'Flow', 'Bkt', 'Bnt','Ats','Temp*Flow',  "Bkt*Bnt")) +
+  scale_y_continuous('Relative proportion of variance explained',
+                     breaks = c(-0.9, -0.25, -0.5, 0.0, 0.25, 0.5, 0.9),
+                     labels = c('0.9', '0.25', '0.5\n\nBrook Trout\n', '0.0', '0.25', '0.5\n\nBrown Trout\n', '0.9')) +
+  geom_text(data = summ1a, aes(y=xAxisLoc, x=7, label=paste(round(prop,2))),size = 5) +
+  geom_hline(yintercept = 0) +
+  #scale_color_grey(start = 0.15, end = 0.75) +
+  theme_publication() +
+ #  scale_fill_continuous() +
+  scale_fill_distiller(name="Parameter\nestimate", palette = "RdBu", direction = 1) +
+  theme(legend.position="right",             
+        #legend.key = element_rect(colour = NA),
+        legend.direction = "vertical",
+        legend.key.size= unit(0.25, "in"),
+        #    legend.margin = unit(0, "cm"),
+        legend.title = element_text(face="plain")#element_blank()
+        ) +
+  facet_grid(season ~ ageGroup, labeller=labeller(season = labelsSeason2, ageGroup = labelAge))
+
+ggsave(paste0('figures/3Spp_WB/relImpOccAll_GR_HorizBarsColor.png'), width = 11, height = 9, units='in')
+
+
+#######################
+# coefs
+labelsC <- c('1' = 'intercept', '2' = 'Temp','3' = 'Flow','4' = 'Bkt','5' = 'Bnt','6' = 'Ats','7' = 'Temp*Flow', '8' = "Bkt*Bnt")
+
+
+ggplot(cAll %>% filter(var %in% 2:8, rowname %in% c('bktC','bntC')), aes((occ), value, color = factor(rowname))) +
+  geom_point(size=3) +
+  geom_line() +
+  geom_vline(xintercept = 3.5) +
+  scale_x_continuous('Sampling occasion',
+                    breaks = 2:10,
+                    labels = c('Winter','Spring','Summer', 'Autumn','Winter','Spring','Summer', 'Autumn','Winter')
+                    ) +
+  scale_y_continuous('Coefficients') +
+  theme_publication() +
+  theme(axis.text.x  = element_text(angle=90, vjust=0.25, size=10)) +
+  facet_wrap(~ var, labeller=labeller(var = labelsC))#, scales = 'free')
+
+ggsave(paste0('figures/3Spp_WB/coefsOccAll.png'), width = 11, height = 9, units='in')
+
+# intercept only
+cAll2 <- rbind(cAll,data.frame(rowname=c('bktC','bntC','atsC'),value=simData$meanInit,var=1,occ=1,season=3))
+ggplot(cAll2 %>% filter(var == 1), aes((occ), value, color = factor(rowname))) +
+  geom_point(size=4) +
+  geom_line() +
+  geom_vline(xintercept = 3.5) +
+  scale_x_continuous('Sampling occasion',
+                    breaks = 1:10,
+                    labels = c('Autumn','Winter','Spring','Summer', 'Autumn','Winter','Spring','Summer', 'Autumn','Winter')
+                    ) +
+  scale_y_continuous('Intercept') +
+  theme_publication() +
+  theme(axis.text.x  = element_text(angle=90, vjust=0.25, size=10))
+
+ggsave(paste0('figures/3Spp_WB/coefsInterceptOccAll.png'), width = 11, height = 9, units='in')
+
+
+
+
+#####################################
+# no need to start sims with diff sizes by species
+yoyMeans <- 
+cd %>% filter( riverOrdered == 'west brook', ageInSamples == 1 ) %>%
+  group_by(species) %>%
+  summarize(meanLen = mean(observedLength,na.rm = TRUE),
+           sdLen = sd(observedLength,na.rm = TRUE))
+
+#   species meanLen sdLen
+#   <chr>     <dbl> <dbl>
+# 1 ats        69.0  5.86
+# 2 bkt        72.7  9.94
+# 3 bnt        72.9  8.73
+#####################################
+
+```
+
+```{r RI by occ - not used for paper SIZE}
+
+# make figures of relative importance for each sampling occasion
+rIAll <- cAll <- NULL
+for( occSelected in 2:simData$nOcc){
+  print(occSelected)
+  lmAll <- ggRIAll <- relImpAll <- coefsAll <- list()
+
+  for(spp1 in spp){
+      
+      lmAll[[spp1]] <- lm( lenMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt, data = stats3Spp[[spp1]][[1]] %>% filter(occ == occSelected))
+  
+      relImpAll[[spp1]] <- calc.relimp(lmAll[[spp1]], type = c("lmg"), rela = TRUE)
+      
+      coefsAll[[spp1]] <- lmAll[[spp1]]$coefficients
+  }
+  
+  # make bar chart of relative importance of each variable for each spp
+  rI <- cbind(data.frame(bktRI = relImpAll[['bkt']]$lmg), 
+              data.frame(bntRI = relImpAll[['bnt']]$lmg), 
+              data.frame(atsRI = relImpAll[['ats']]$lmg)) %>%
+        rownames_to_column() %>% 
+        gather(key=rowname) %>% 
+        mutate(var = rep(1:length(relImpAll[['bkt']]$lmg),length(spp)),
+               occ = occSelected,
+               season = simData$seasons[occSelected])
+  
+  rIAll <- rbind(rIAll,rI)
+  
+  ggplot(rI, aes(factor(var),value, fill = factor(rowname, levels = c('bktRI','bntRI','atsRI'), ordered = TRUE))) +
+    geom_col(position='dodge') +
+    scale_x_discrete('Parameter',
+                     labels = c('1' = 'Temp','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")) +
+    scale_fill_grey() +
+    scale_y_continuous('Relative proportion of variance explained') +
+    ggtitle(paste0("occ = ",occSelected,"  Season = ",simData$seasons[occSelected])) +
+    theme_publication() +
+    theme( legend.position = 'none')
+  
+##############################  ggsave(paste0('figures/3Spp_WB/relImpOcc',occSelected,'.png'), width = 9, height = 7, units='in')
+  
+  # coefficients
+  coefs <- cbind(data.frame(bktC = coefsAll[['bkt']]), 
+                 data.frame(bntC = coefsAll[['bnt']]), 
+                 data.frame(atsC = coefsAll[['ats']])) %>%
+        rownames_to_column() %>% 
+        gather(key=rowname) %>% 
+        mutate(var = rep(1:length(coefsAll[['bkt']]),length(spp)),
+               occ = occSelected,
+               season = simData$seasons[occSelected])
+  
+  cAll <- rbind(cAll,coefs)
+}  
+
+
+######################################################
+# relImp over occasions for each spp and parameter
+labels <- c('1' = 'Temp','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")
+
+# leaving out bkt*bnt, too small
+ggplot(rIAll %>% filter(rowname %in% c('bktRI','bntRI')), aes((occ), value, color = factor(rowname))) +
+  geom_point() +
+  geom_line() +
+  geom_vline(xintercept = 3.5) +
+  scale_x_continuous('Sampling occasion',
+                    breaks = 2:10,
+                    labels = c('Winter','Spring','Summer', 'Autumn','Winter','Spring','Summer', 'Autumn','Winter')
+                    ) +
+  scale_y_continuous('Relative proportion of variance explained') +
+  theme_publication() +
+  theme(axis.text.x  = element_text(angle=90, vjust=0.25, size=10)) +
+  facet_wrap(~ var, labeller=labeller(var = labels))
+
+ggsave(paste0('figures/3Spp_WB/relImpOccAll.png'), width = 11, height = 9, units='in')
+
+rIMeans <- rIAll %>%
+  group_by(rowname,var) %>%
+  summarize( mean = mean(value),
+             sd = sd(value),
+             stderr = sd(value)/sqrt(length(value))) %>%
+  mutate( up = mean + stderr )
+
+dodge <- position_dodge(width=0.9)
+ggplot(rIMeans %>% filter(rowname %in% c('bktRI','bntRI')), aes(factor(var),mean, fill = factor(rowname, levels = c('bktRI','bntRI','atsRI'), ordered = TRUE))) +
+  geom_errorbar(aes(ymin = mean-0.01, ymax = up), width = 0.25, position=dodge) +
+  geom_col(position=dodge) +
+  scale_x_discrete('Parameter',
+                   labels = c('1' = 'Temperature','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")) +
+  scale_fill_grey() +
+  scale_y_continuous('Relative proportion of variance explained') +
+  theme_publication() +
+  theme( legend.position = 'none')
+
+ggsave(paste0('figures/3Spp_WB/relImpOccMean.png'), width = 9, height = 7, units='in')
+
+# mean rel Imp for env vs spp variables
+rIMeans %>%
+  mutate(isEnvVar = ifelse(var %in% c(1,2,6), 1,0)) %>%
+  group_by(rowname,isEnvVar) %>%
+  summarize(meanMean = mean(mean),
+            sumMean = sum(mean),
+            sdMean = sd(mean))
+
+# ratio of env/(env+spp) means
+.247/(.246+.0648) # bkt
+.122/(.122+.159) # bnt
+
+# ratio of env/(env+spp) sums - donT need to do ratio, just use sum for env
+.635/.259 # den-dep bnt/bkt
+.741/.365 # env bkt/bnt
+
+#######################
+# coefs
+labelsC <- c('1' = 'intercept', '2' = 'Temp','3' = 'Flow','4' = 'Bkt','5' = 'Bnt','6' = 'Ats','7' = 'Temp*Flow', '8' = "Bkt*Bnt")
+
+
+ggplot(cAll %>% filter(var %in% 2:8, rowname %in% c('bktC','bntC')), aes((occ), value, color = factor(rowname))) +
+  geom_point(size=3) +
+  geom_line() +
+  geom_vline(xintercept = 3.5) +
+  scale_x_continuous('Sampling occasion',
+                    breaks = 2:10,
+                    labels = c('Winter','Spring','Summer', 'Autumn','Winter','Spring','Summer', 'Autumn','Winter')
+                    ) +
+  scale_y_continuous('Coefficients') +
+  theme_publication() +
+  theme(axis.text.x  = element_text(angle=90, vjust=0.25, size=10)) +
+  facet_wrap(~ var, labeller=labeller(var = labelsC))#, scales = 'free')
+
+ggsave(paste0('figures/3Spp_WB/coefsOccAll.png'), width = 11, height = 9, units='in')
+
+# intercept only
+cAll2 <- rbind(cAll,data.frame(rowname=c('bktC','bntC','atsC'),value=simData$meanInit,var=1,occ=1,season=3))
+ggplot(cAll2 %>% filter(var == 1), aes((occ), value, color = factor(rowname))) +
+  geom_point(size=4) +
+  geom_line() +
+  geom_vline(xintercept = 3.5) +
+  scale_x_continuous('Sampling occasion',
+                    breaks = 1:10,
+                    labels = c('Autumn','Winter','Spring','Summer', 'Autumn','Winter','Spring','Summer', 'Autumn','Winter')
+                    ) +
+  scale_y_continuous('Intercept') +
+  theme_publication() +
+  theme(axis.text.x  = element_text(angle=90, vjust=0.25, size=10))
+
+ggsave(paste0('figures/3Spp_WB/coefsInterceptOccAll.png'), width = 11, height = 9, units='in')
+
+
+
+
+#####################################
+# no need to start sims with diff sizes by species
+yoyMeans <- 
+cd %>% filter( riverOrdered == 'west brook', ageInSamples == 1 ) %>%
+  group_by(species) %>%
+  summarize(meanLen = mean(observedLength,na.rm = TRUE),
+           sdLen = sd(observedLength,na.rm = TRUE))
+
+#   species meanLen sdLen
+#   <chr>     <dbl> <dbl>
+# 1 ats        69.0  5.86
+# 2 bkt        72.7  9.94
+# 3 bnt        72.9  8.73
+#####################################
+
+```
+
+
+```{r tables}
+
+round(mcmc$summary$all.chains[startsWith(attributes(mcmc$summary$all.chains)$dimnames[[1]], "grBeta["),],2)
+
+```
+
+
+```{r RI across occ - use this for paper SIZE}
+
+# relative proportion stats with occ in the lm 
+stats3Spp[['bkt']][[1]]$season <- as.factor(c(3,4,1,2,3,4,1,2,3,4))
+stats3Spp[['bkt']][[1]]$temp2 <- stats3Spp[['bkt']][[1]]$temp^2
+stats3Spp[['bkt']][[1]]$flow2 <- stats3Spp[['bkt']][[1]]$flow^2
+
+
+ageForRI <-  'adult' #'yoy' or 'adult'
+occs <- if (ageForRI == 'yoy') 1:3 else 4:10
+indepVarVals <- c(-1.5,0,1.5) # make sure symetrical around 0
+rIBKTBNT <- NULL
+# loop over occs
+for(rep in 1:simData$nReps){
+
+  print(rep)
+  
+  datOccBKT <- stats3Spp[['bkt']][[1]] %>% filter(iter == rep, occ %in% occs, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals)
+  lmAllBKT <- lm( lenMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt + occ, data = datOccBKT) 
+  relImpAllBKT <- calc.relimp(lmAllBKT, type = c("lmg"), rela = TRUE)
+  
+  datOccBNT <- stats3Spp[['bnt']][[1]] %>% filter(iter == rep, occ %in% occs, temp %in% indepVarVals, flow %in% indepVarVals, bkt %in% indepVarVals, bnt %in% indepVarVals, ats %in% indepVarVals)
+  lmAllBNT <- lm( lenMean ~ temp + flow + temp * flow + temp^2 + flow^2 + bkt + bnt + ats + bnt * bkt + occ, data = datOccBNT)
+  relImpAllBNT <- calc.relimp(lmAllBNT, type = c("lmg"), rela = TRUE)
+  
+  rBKT <- relImpAllBKT$lmg[2:8] / sum(relImpAllBKT$lmg[2:8]) 
+  rBNT <- relImpAllBNT$lmg[2:8] / sum(relImpAllBNT$lmg[2:8])
+  
+  rIBKTBNT <- rbind(rIBKTBNT, data.frame(cbind(rBKT,rBNT)) %>% 
+                      rownames_to_column() %>% 
+                      gather(key = rowname) %>% 
+                      mutate(var = rep(1:7,2),
+                             varText = rep(names(rBKT),2),
+                             iter = rep)
+                    )
+
+}
+
+
+rIBKTBNTMeans <- rIBKTBNT %>%
+  group_by(rowname, var) %>%
+  summarise(rIMean = mean(value),
+            rISd = sd(value),
+            rIUpperCI = quantile(value, 0.95))
+
+dodge <- position_dodge(width=0.9)
+ggplot(rIBKTBNTMeans, aes(factor(var),rIMean, fill = factor(rowname, levels = c('rBKT','rBNT'), ordered = TRUE))) +
+  geom_errorbar(aes(ymin = rIMean - 0.001, ymax = rIUpperCI), width = 0.25, position=dodge) +
+  geom_col(position=dodge) +
+  scale_x_discrete('Parameter',
+                   labels = c('1' = 'Temperature','2' = 'Flow','3' = 'Bkt','4' = 'Bnt','5' = 'Ats','6' = 'Temp*Flow', '7' = "Bkt*Bnt")) +
+  scale_fill_grey() +
+  scale_y_continuous('Relative proportion of variance explained') +
+  theme_publication() +
+  geom_hline(yintercept = 0) +
+  theme( legend.position = 'none')
+
+ggsave(paste0('figures/3Spp_WB/relImpOccMeanModWOcc_Size',simData$nReps,'_',ageForRI,'.png'), width = 9, height = 7, units='in')
+
+# uses 42 G - does not run
+#lmAll <- lm( lenMean ~ (temp + flow +  temp^2 + flow^2 + bkt + bnt + ats )*occ + temp * flow + bnt * bkt, data = stats3Spp[['bkt']][[1]] %>%               filter(iter %in% 1) )
+
+rIBKTBNT %>%
+  mutate(isEnvVar = ifelse(var %in% c(1,2,6), 1,0)) %>%
+  group_by(rowname,isEnvVar) %>%
+  summarize(meanMean = mean(value),
+            sumMean = sum(value),
+            sdMean = sd(value))
+# 25 reps
+#   rowname isEnvVar meanMean sumMean sdMean
+#   <chr>      <dbl>    <dbl>   <dbl>  <dbl>
+# 1 rBKT           0   0.0664   0.265  0.105
+# 2 rBKT           1   0.245    0.735  0.249
+# 3 rBNT           0   0.147    0.588  0.104
+# 4 rBNT           1   0.137    0.412  0.158
+
+# 100 reps
+#   rowname isEnvVar meanMean sumMean sdMean
+#   <chr>      <dbl>    <dbl>   <dbl>  <dbl>
+# 1 rBKT           0   0.0676    27.0 0.0914
+# 2 rBKT           1   0.243     73.0 0.200 
+# 3 rBNT           0   0.146     58.2 0.0922
+# 4 rBNT           1   0.139     41.8 0.131
+
+# ratio of env/(env+spp) means
+.243/(.243 + .0676) # bkt 0.7823567
+.139/(.139 + .146) # bnt 0.4877193
+
+.782/.488 # 1.60
+##############################################################
+############################################################
+
+# projOut <- list(stats3Spp, lm, relImp, anov, elapsed)
+load(paste0('D:/projects/linkedModels/data/out/projectionOut_N',simData$nReps,'.RData'))
+
+spp <- c('bkt','bnt','ats')
+# scenarios
+# Plot subsets of the simulations
+#means for each iter
+stats1 <- rbind(data.frame(stats3Spp[['bkt']][[1]]), 
+                data.frame(stats3Spp[['bnt']][[1]]), 
+                data.frame(stats3Spp[['ats']][[1]])) %>%
+          mutate(spp = rep(spp, each = nrow(stats3Spp[['bkt']][[1]])))
+
+#means for each occ
+stats2 <- rbind(data.frame(stats3Spp[['bkt']][[2]]), 
+                data.frame(stats3Spp[['bnt']][[2]]), 
+                data.frame(stats3Spp[['ats']][[2]])) %>%
+          mutate(spp = rep(spp, each = nrow(stats3Spp[['bkt']][[2]])))
+
+ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, ats == 0), aes(occ,lenMeanMean, group = spp)) +
+  geom_point(aes(color = spp) ) +
+  geom_line( aes(color = spp) ) +
+  geom_point(aes(color = spp), data = stats2 %>% filter(temp == 1.5, flow == 0, bkt == 0, bnt == 0, ats == 0) ) +
+  geom_line( aes(color = spp), data = stats2 %>% filter(temp == 1.5, flow == 0, bkt == 0, bnt == 0, ats == 0), linetype = 2 ) 
+  
+ 
+ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, ats == 0), aes(occ,lenMeanMean, group = spp)) +
+  geom_point(aes(color = spp) ) +
+  geom_line( aes(color = spp) ) +
+  geom_point(aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 1.5, bkt == 0, bnt == 0, ats == 0) ) +
+  geom_line( aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 1.5, bkt == 0, bnt == 0, ats == 0), linetype = 2 ) 
+   
+ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, ats == 0), aes(occ,lenMeanMean, group = spp)) +
+  geom_point(aes(color = spp) ) +
+  geom_line( aes(color = spp) ) +
+  geom_point(aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 0, bkt == 1.5, bnt == 0, ats == 0) ) +
+  geom_line( aes(color = spp), data = stats2 %>% filter(temp == 0, flow == 0, bkt == 1.5, bnt == 0, ats == 0), linetype = 2 ) 
+   
+
+# trajectories across indep var values for different combinations. Trying to relate to relImp results
+#temp
+p1 <- ggplot( stats2 %>% filter(flow == 0, bkt == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(temp))) +
+  geom_line(aes(color = factor(temp))) +
+  geom_point(aes(color = factor(temp))) +
+  facet_wrap(~spp) 
+
+#flow
+p2 <- ggplot( stats2 %>% filter(temp == 0, bkt == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(flow))) +
+  geom_line(aes(color = factor(flow))) +
+  geom_point(aes(color = factor(flow))) +
+  facet_wrap(~spp)  
+
+#bkt
+p3 <- ggplot( stats2 %>% filter(temp == 0, flow == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(bkt))) +
+  geom_line(aes(color = factor(bkt))) +
+  geom_point(aes(color = factor(bkt))) +
+  facet_wrap(~spp) 
+
+#bnt
+p4 <- ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(bnt))) +
+  geom_line(aes(color = factor(bnt))) +
+  geom_point(aes(color = factor(bnt))) +
+  facet_wrap(~spp)
+
+#ats
+p5 <- ggplot( stats2 %>% filter(temp == 0, flow == 0, bkt == 0, bnt == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(ats))) +
+  geom_line(aes(color = factor(ats))) +
+  geom_point(aes(color = factor(ats))) +
+  facet_wrap(~spp)
+
+multiplot(p1, p2, p3, p4, p5, cols=2) # multiplot function is below
+
+#temp*flow
+ggplot( stats2 %>% filter(bkt == 0, bnt == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(flow))) +
+  geom_line(aes(color = factor(flow))) +
+  geom_point(aes(color = factor(flow))) +
+  facet_grid(temp~spp)
+
+#bkt*bnt
+ggplot( stats2 %>% filter(temp == 0, flow == 0, ats == 0, spp %in% c('bkt','bnt')), aes(occ,lenMeanMean, group = factor(bnt))) +
+  geom_line(aes(color = factor(bnt))) +
+  geom_point(aes(color = factor(bnt))) +
+  facet_grid(bkt~spp)
+
+
+
+
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+
+
+# size=100
+# gr=10
+# sd=1
+# mean(rnorm(10000,size+gr,sd))
+# mean(size+rnorm(10000,gr,sd))
+
+
+
+
+
+
+```
+
+
+```{r overview graphs - Fig Appendix}
+
+pd <- position_dodge(0.65)
+d2$speciesGG <- factor(d2$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+
+# isYOY1
+d2 %>% group_by(speciesGG,riverOrderedGG,seasonGG,year) %>%
+  filter(isYOYDATA == 1, riverOrderedGG == 'West Brook') %>%
+  summarize(meanGR = mean(grLength, na.rm=T),
+            sdGR = sd(grLength, na.rm=T)) %>%
+ggplot( aes(year,meanGR, color=speciesGG, shape=speciesGG) ) +
+  geom_point( position=pd ) +
+  geom_errorbar( aes(ymin = meanGR - sdGR, ymax = meanGR + sdGR), width = 0.33, position=pd ) +
+  ggtitle( "isYOY = 1" ) +
+  labs( x = "Year", y = "Growth rate (mm/d)" ) +
+  scale_x_continuous( breaks = 1997:2015 ) +
+  theme_publication() +
+  theme( panel.grid.minor = element_blank(),
+         axis.text.x  = element_text(angle=90, vjust=0.5, size=8) ) +
+  facet_wrap(~seasonGG )
+
+ggsave('figures/3Spp_WB/grByYearYOY1.png')
+
+# isYOY2
+d2 %>% group_by(speciesGG,riverOrderedGG,seasonGG,year) %>%
+  filter(isYOYDATA == 2, riverOrderedGG == 'West Brook') %>%
+  summarize(meanGR = mean(grLength, na.rm=T),
+            sdGR = sd(grLength, na.rm=T)) %>%
+  ggplot( aes(year,meanGR, color=speciesGG, shape=speciesGG) ) +
+  geom_point( position=pd ) +
+  geom_errorbar( aes(ymin = meanGR - sdGR, ymax = meanGR + sdGR), width = 0.33, position=pd ) +
+  ggtitle( "isYOY = 2" ) +
+  labs( x = "Year", y = "Growth rate (mm/d)" ) +
+  scale_x_continuous( breaks = 1997:2015 ) +
+  theme_publication() +
+  theme( panel.grid.minor = element_blank(),
+         axis.text.x  = element_text(angle=90, vjust=0.5, size=8) ) +
+  facet_wrap(~seasonGG )
+
+
+ggsave('figures/3Spp_WB/grByYearYOY2.png')
+
+
+```
+
+
+```{r growth by movement}
+d2$isYOY <- ifelse( d2$ageInSamples <= 3, 1, 2 )
+d2 <-  d2 %>%
+  group_by(tag) %>%
+  mutate( lagRiverN = lead(riverN), 
+          riverNMove = paste(riverN,lagRiverN, sep="_")
+          #gr = (observedLength - lagObservedLength)/as.integer(detectionDate - lagDetectionDate)
+          )
+
+#d2 %>% filter(tag=='00088cbf44') %>% select(tag,riverN,lagRiverN,sampleNumber,observedLength,lagObservedLength)
+table(d2$riverNMove)
+
+cdMeansByisYOYriverNMove <- d2 %>%
+  #mutate( gr = (observedLength - lagObservedLength)/as.integer(detectionDate - lagDetectionDate) ) %>%
+  group_by(species,riverN,lagRiverN,season,isYOY) %>%
+  summarize( meanGr = mean( grLength, na.rm = TRUE ),
+             sdGr = sd( grLength, na.rm = TRUE ),
+             n = n()) %>%
+  mutate( meanGrUp = meanGr + sdGr,
+          meanGrDn = meanGr - sdGr
+          )
+
+# 
+ggplot( cdMeansByisYOYriverNMove %>% filter(!(season == 2 & isYOY == 1), species == "bkt", isYOY == 2) , aes(season, meanGr, color = factor(lagRiverN)) ) +
+  geom_errorbar(aes(ymin = meanGrDn, ymax = meanGrUp), width = 0.25, position = pd) +
+  geom_point( size = 2 ) +
+  geom_line()+
+  facet_wrap(~riverN)
+
+d2 %>% filter(riverN == 1 & lagRiverN == 4) %>% select(tag,river,sampleNumber)
+d2 %>% filter(riverN == 2, is.na(lagRiverN), !is.na(grLength)) %>% select(tag,riverN,sampleNumber,lagRiverN,observedLength,lagObservedLength,gr,grLength)
+d2 %>% filter(tag=='00088cc059') %>% select(tag,riverOrdered,riverN,lagRiverN,sampleNumber,observedLength,lagObservedLength,gr,grLength)
+```
+
