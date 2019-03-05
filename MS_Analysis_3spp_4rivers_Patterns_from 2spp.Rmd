@@ -79,12 +79,13 @@ load("D:/projects/linkedModels/data/cd_west_1997.RData")
 # Has mean size changed over time?
 means <- 
   cd %>% mutate( age = year - cohort ) %>%
-    filter( ageInSamples %in% 1:10, age < 3, year < 2016, area %in% c('inside','trib') ) %>%
+    filter( ageInSamples %in% 1:10, age < 3, year < 2016, area %in% c('inside','trib'), enc == 1) %>%
     group_by(species,riverOrdered,ageInSamples,year,season,age) %>%
     summarize(meanLen = mean(observedLength,na.rm = TRUE),
               sdLen = sd(observedLength,na.rm = TRUE),
               meanGR = mean(grLength,na.rm = TRUE),
-              sdGR = sd(grLength,na.rm = TRUE)
+              sdGR = sd(grLength,na.rm = TRUE),
+              n = n()
               )
 
 means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
@@ -156,7 +157,7 @@ lenSlopesTidy %>%
              sd = sd(estimate))
 
 # do increases (slopes) increase over age? Yes
-ggplot(lenSlopesTidy %>% filter(), aes((ageInSamples),estimate, color=speciesGG)) +
+ggplot(lenSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8)), aes((ageInSamples),estimate, color=speciesGG)) +
   geom_point( size = 3) +
   geom_smooth(method='lm', se=FALSE) +
   scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
@@ -166,6 +167,16 @@ ggplot(lenSlopesTidy %>% filter(), aes((ageInSamples),estimate, color=speciesGG)
   facet_wrap(~riverOrdered)
 
 ggsave(paste0('figures/meanLengthsOverAge.png'), width = 6, height = 6, units='in')
+
+# just bkt
+ggplot(lenSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8), species == 'bkt'), aes((ageInSamples),estimate, color=riverOrdered, shape = riverOrdered)) +
+  geom_point( size = 3) +
+  geom_smooth(method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean body length over years" ) +
+  theme_publication() 
+
+ggsave(paste0('figures/meanLengthsOverAgeBKT.png'), width = 6, height = 6, units='in')
 
 summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bkt')))
 summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bnt')))
@@ -233,6 +244,17 @@ ggplot(grSlopesTidy %>% filter(), aes((ageInSamples),estimate, color=speciesGG))
   facet_wrap(~riverOrdered)
 
 ggsave(paste0('figures/meanGRsOverAge.png'), width = 6, height = 6, units='in')
+
+# just bkt
+ggplot(grSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8), species == 'bkt'), aes((ageInSamples),estimate, color=riverOrdered, shape = riverOrdered)) +
+  geom_point( size = 3) +
+  geom_smooth(method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean growth rate over years" ) +
+  theme_publication() 
+
+ggsave(paste0('figures/meanGRsOverAgeBKT.png'), width = 6, height = 6, units='in')
+
 
 summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bkt')))
 summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bnt')))
