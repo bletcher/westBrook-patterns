@@ -74,25 +74,45 @@ rm(ddG,dG,mcmcProcessed)
 load("D:/projects/linkedModels/data/cd_west_1997.RData")
 ```
 
-```{r mean lengths}
+```{r mean lengths by gropuingVariable}
+
+#####################################################
+#####################################################
+# SElect THIS for metaPop analysis, or
+groupingVariables <- c('species','metaPop01','ageInSamples', 'year','season','age')
+groupingVariablesNoYear <- c('species','metaPop01','ageInSamples','season','age')
+
+# THIS for 4 river analysis
+#groupingVariables <- c('species','riverOrdered','ageInSamples','year','season','age')
+#groupingVariablesNoYear <- c('species','riverOrdered','ageInSamples','season','age')
+
+#####################################################
+#####################################################
+
+riverGroupVar <- groupingVariables[2]
+
 
 # Has mean size changed over time?
 means <- 
-  cd %>% mutate( age = year - cohort ) %>%
-    filter( ageInSamples %in% 1:10, age < 3, year < 2016, area %in% c('inside','trib'), enc == 1) %>%
-    group_by(species,riverOrdered,ageInSamples,year,season,age) %>%
+  cd %>% mutate( age = year - cohort,
+                 metaPop01 = ifelse(riverOrdered == 'wb obear', 0 ,1)) %>%
+    filter( ageInSamples %in% 1:10, age < 3, year < 2016, area %in% c('inside','trib'), enc == 1
+            #!(riverOrdered == 'wb mitchell' & ageInSamples > 8) #low sample sizes
+            ) %>% 
+    group_by_at(vars(one_of(groupingVariables))) %>%
     summarize(meanLen = mean(observedLength,na.rm = TRUE),
               sdLen = sd(observedLength,na.rm = TRUE),
               meanGR = mean(grLength,na.rm = TRUE),
               sdGR = sd(grLength,na.rm = TRUE),
               n = n()
-              )
+              ) 
 
 means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
 means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
 
 lenSlopes <- means %>%
-  group_by( species, riverOrdered, ageInSamples, season, age ) %>%
+  group_by_at(vars(one_of(groupingVariablesNoYear))) %>%
+  #group_by(species,metaPop01,ageInSamples,year,season,age) %>%
   nest()
 
 lengthModel <- function(df){
@@ -121,7 +141,7 @@ lenSlopesTidy <- lenSlopes %>%
 lenSlopesTidy$seasonGG <- factor(lenSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
 lenSlopesTidy$speciesGG <- factor(lenSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
 
-save(lenSlopesTidy,file = 'D:/projects/westBrook-patterns/data/out/lenSlopesTidy.RData')
+save(lenSlopesTidy,file = paste0('D:/projects/westBrook-patterns/data/out/lenSlopesTidy_',riverGroupVar,'.RData'))
 ##
 
 ggplot( means %>% filter(year >= 0), aes(year,meanLen, group= speciesGG)) +
@@ -140,9 +160,10 @@ ggplot( means %>% filter(year >= 0), aes(year,meanLen, group= speciesGG)) +
 #  geom_text(data = lenSlopesTidy %>% filter(species == 'ats', age==2), aes(x=2012.5,y=80, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
   theme_publication() +
   scale_color_grey(start = 0.15, end = 0.75) +
-  facet_grid(seasonGG ~ riverOrdered + age)
+ # facet_grid(seasonGG ~ riverOrdered + age)
+  facet_grid(as.formula(paste("seasonGG ~", riverGroupVar, "+ age")))    
 
-ggsave(paste0('figures/meanLengths.png'), width = 11, height = 11, units='in')
+ggsave(paste0('figures/meanLengths_',riverGroupVar,'.png'), width = 11, height = 11, units='in')
 
 # mean increases 
 lenSlopesTidy %>%
@@ -156,27 +177,33 @@ lenSlopesTidy %>%
   summarise( means = mean(estimate),
              sd = sd(estimate))
 
+lenSlopesTidy %>%
+  group_by(species, metaPop01) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
 # do increases (slopes) increase over age? Yes
-ggplot(lenSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8)), aes((ageInSamples),estimate, color=speciesGG)) +
+#ggplot(lenSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8)), aes((ageInSamples),estimate, color=speciesGG)) +
+ggplot(lenSlopesTidy %>% filter(ageInSamples %in% 1:9), aes((ageInSamples),estimate, color=speciesGG)) +
   geom_point( size = 3) +
   geom_smooth(method='lm', se=FALSE) +
   scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
   labs( x = "Age", y = "Slope of mean body length over years" ) +
   theme_publication() +
   scale_color_grey(start = 0.15, end = 0.75) +
-  facet_wrap(~riverOrdered)
+  facet_wrap(as.formula(paste("~", riverGroupVar)))
 
-ggsave(paste0('figures/meanLengthsOverAge.png'), width = 6, height = 6, units='in')
+ggsave(paste0('figures/meanLengthsOverAge_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
 
 # just bkt
-ggplot(lenSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8), species == 'bkt'), aes((ageInSamples),estimate, color=riverOrdered, shape = riverOrdered)) +
-  geom_point( size = 3) +
-  geom_smooth(method='lm', se=FALSE) +
+ggplot(lenSlopesTidy %>% filter(ageInSamples %in% 1:9, species == 'bkt'), aes_(~ageInSamples, ~estimate, group = as.name(riverGroupVar))) +
+  geom_point(aes_(color= as.name(riverGroupVar)), size = 3) +
+  geom_smooth(aes_(color= as.name(riverGroupVar)), method='lm', se=FALSE) +
   scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
   labs( x = "Age", y = "Slope of mean body length over years" ) +
   theme_publication() 
 
-ggsave(paste0('figures/meanLengthsOverAgeBKT.png'), width = 6, height = 6, units='in')
+ggsave(paste0('figures/meanLengthsOverAgeBKT_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
 
 summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bkt')))
 summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bnt')))
@@ -191,10 +218,15 @@ grSlopesTidy <- lenSlopes %>%
   filter(term == 'year') %>%
   mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
   mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
-  mutate( sig = ifelse(p.value < 0.0001,"***",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig))  %>%
   filter(!is.nan(statistic)) 
 
-save(grSlopesTidy,file = 'D:/projects/westBrook-patterns/data/out/grSlopesTidy.RData')
+grSlopesTidy$seasonGG <- factor(grSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+grSlopesTidy$speciesGG <- factor(grSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+save(grSlopesTidy,file = paste0('D:/projects/westBrook-patterns/data/out/grSlopesTidy_',riverGroupVar,'.RData'))
+##
+
 ##
 means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
 means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
@@ -217,9 +249,9 @@ ggplot( means %>% filter(), aes(year,meanGR, group= speciesGG)) +
 #  geom_text(data = grSlopesTidy %>% filter(species == 'ats', age==2), aes(x=2012.5,y=80, label=paste(round(estimate,2),sig)),hjust = 0)+#, color = speciesGG)) +
   theme_publication() +
   scale_color_grey(start = 0.15, end = 0.75) +
-  facet_grid(seasonGG ~ riverOrdered + age)
+  facet_grid(as.formula(paste("seasonGG ~", riverGroupVar, "+ age")))    
 
-ggsave(paste0('figures/meanGRs.png'), width = 11, height = 11, units='in')
+ggsave(paste0('figures/meanGRs_',riverGroupVar,'.png'), width = 11, height = 11, units='in')
 
 # mean increases 
 grSlopesTidy %>%
@@ -234,26 +266,28 @@ grSlopesTidy %>%
              sd = sd(estimate))
 
 # do increases (slopes) increase over age? Yes
-ggplot(grSlopesTidy %>% filter(), aes((ageInSamples),estimate, color=speciesGG)) +
-  geom_point(size = 3) +
-  geom_smooth(method='lm', se=FALSE) +
-  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
-  labs( x = "Age", y = "Slope of mean growth rate over years" ) +
-  theme_publication() +
-  scale_color_grey(start = 0.15, end = 0.75) +
-  facet_wrap(~riverOrdered)
-
-ggsave(paste0('figures/meanGRsOverAge.png'), width = 6, height = 6, units='in')
-
-# just bkt
-ggplot(grSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8), species == 'bkt'), aes((ageInSamples),estimate, color=riverOrdered, shape = riverOrdered)) +
+#ggplot(lenSlopesTidy %>% filter(!(riverOrdered == 'wb mitchell' & ageInSamples > 8)), aes((ageInSamples),estimate, color=speciesGG)) +
+ggplot(grSlopesTidy %>% filter(ageInSamples %in% 1:9), aes((ageInSamples),estimate, color=speciesGG)) +
   geom_point( size = 3) +
   geom_smooth(method='lm', se=FALSE) +
   scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
-  labs( x = "Age", y = "Slope of mean growth rate over years" ) +
+  labs( x = "Age", y = "Slope of mean body length over years" ) +
+  theme_publication() +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_wrap(as.formula(paste("~", riverGroupVar)))
+
+ggsave(paste0('figures/meanLengthsOverAge_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
+
+# just bkt
+ggplot(grSlopesTidy %>% filter(ageInSamples %in% 1:9, species == 'bkt'), aes_(~ageInSamples, ~estimate, group = as.name(riverGroupVar))) +
+  geom_point(aes_(color= as.name(riverGroupVar)), size = 3) +
+  geom_smooth(aes_(color= as.name(riverGroupVar)), method='lm', se=FALSE) +
+  scale_x_continuous(breaks = 1:10, labels = c(0,0,1,1,1,1,2,2,2,2)) +
+  labs( x = "Age", y = "Slope of mean body length over years" ) +
   theme_publication() 
 
-ggsave(paste0('figures/meanGRsOverAgeBKT.png'), width = 6, height = 6, units='in')
+ggsave(paste0('figures/meanLengthsOverAgeBKT_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
+
 
 
 summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bkt')))
