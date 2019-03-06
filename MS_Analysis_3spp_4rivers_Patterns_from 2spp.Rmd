@@ -79,12 +79,12 @@ load("D:/projects/linkedModels/data/cd_west_1997.RData")
 #####################################################
 #####################################################
 # SElect THIS for metaPop analysis, or
-groupingVariables <- c('species','metaPop01','ageInSamples', 'year','season','age')
-groupingVariablesNoYear <- c('species','metaPop01','ageInSamples','season','age')
+#groupingVariables <- c('species','metaPop01','ageInSamples', 'year','season','age')
+#groupingVariablesNoYear <- c('species','metaPop01','ageInSamples','season','age')
 
 # THIS for 4 river analysis
-#groupingVariables <- c('species','riverOrdered','ageInSamples','year','season','age')
-#groupingVariablesNoYear <- c('species','riverOrdered','ageInSamples','season','age')
+groupingVariables <- c('species','riverOrdered','ageInSamples','year','season','age')
+groupingVariablesNoYear <- c('species','riverOrdered','ageInSamples','season','age')
 
 #####################################################
 #####################################################
@@ -208,7 +208,7 @@ ggsave(paste0('figures/meanLengthsOverAgeBKT_',riverGroupVar,'.png'), width = 6,
 summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bkt')))
 summary(lm(estimate~ageInSamples, data = lenSlopesTidy %>% filter(species=='bnt')))
 
-
+############################################################################################################
 #########################
 #### gr here, len above
 
@@ -276,7 +276,7 @@ ggplot(grSlopesTidy %>% filter(ageInSamples %in% 1:9), aes((ageInSamples),estima
   scale_color_grey(start = 0.15, end = 0.75) +
   facet_wrap(as.formula(paste("~", riverGroupVar)))
 
-ggsave(paste0('figures/meanLengthsOverAge_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
+ggsave(paste0('figures/meanGRsOverAge_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
 
 # just bkt
 ggplot(grSlopesTidy %>% filter(ageInSamples %in% 1:9, species == 'bkt'), aes_(~ageInSamples, ~estimate, group = as.name(riverGroupVar))) +
@@ -286,7 +286,7 @@ ggplot(grSlopesTidy %>% filter(ageInSamples %in% 1:9, species == 'bkt'), aes_(~a
   labs( x = "Age", y = "Slope of mean body length over years" ) +
   theme_publication() 
 
-ggsave(paste0('figures/meanLengthsOverAgeBKT_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
+ggsave(paste0('figures/meanGRsOverAgeBKT_',riverGroupVar,'.png'), width = 6, height = 6, units='in')
 
 
 
