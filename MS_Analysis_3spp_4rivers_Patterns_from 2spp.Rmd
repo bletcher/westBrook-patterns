@@ -72,31 +72,176 @@ mcmc[['ats']]  <- mcmcProcessed
 rm(ddG,dG,mcmcProcessed)
 
 load("D:/projects/linkedModels/data/cd_west_1997.RData")
+cd <- cd %>% mutate(observedWeight = ifelse(observedWeight == -9999.9, NA, observedWeight),
+                    lagObservedWeight = ifelse(lagObservedWeight == -9999.9, NA, lagObservedWeight))
 ```
 
-```{r mean lengths by gropuingVariable}
+
+```{r von Bert, well, gam}
+
+vB <- 
+  cd %>% mutate( age = year - cohort,
+                 metaPop01 = ifelse(riverOrdered == 'wb obear', 0 ,1),
+                 ydayCumul = yday + 365 * (year - cohort),
+                 cf = observedWeight/observedLength^3 * 10000 ) %>%
+    filter( ageInSamples %in% 1:9,
+            age < 3, 
+            year < 2016, area %in% c('inside','trib'), enc == 1
+            #!(riverOrdered == 'wb mitchell' & ageInSamples > 8) #low sample sizes
+            )
+
+# number of knots from gam 
+kValue <- 9 # from mod6 below, just for graphing
+
+# all fish
+ggplot(vB %>% filter(cohort %in% 2000:2013), aes(ydayCumul,observedLength)) +
+  geom_point(size = 0.5, alpha = 0.1) +
+ # geom_smooth(span = 0.1, size = 1.5, se = F) +
+  geom_smooth(method='gam', alpha = 0.1, formula=y~s(x, k = kValue), se = F) +
+  theme_publication()
+
+# by species
+ggplot(vB %>% filter(cohort %in% 2000:2013), aes(ydayCumul,observedLength, color = species)) +
+  geom_point(size = 0.5, alpha = 0.1) +
+ # geom_smooth(span = 0.1, size = 1.5, se = F) +
+  geom_smooth(method='gam', alpha = 0.1, formula=y~s(x, k = kValue), se = F) +
+ # facet_grid(~species) +
+  theme_publication()
+
+# by species, by cohort gridded
+# ggplot(vB %>% filter(cohort %in% 2000:2013), aes(ydayCumul,observedLength, group = species, color = (species))) +
+#   geom_point(size = 0.5, alpha = 0.1) +
+#  # geom_smooth(span = 0.1, size = 1.5, se = F) +
+#   geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
+#   facet_wrap( ~ cohort) +
+#   theme_publication()
+
+# by species (bkt, bnt), by cohort, by river gridded
+ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats')), aes(ydayCumul,cf, group = species, color = (species))) +
+  geom_point(size = 0.5, alpha = 0.1) +
+ # geom_smooth(span = 0.1, size = 1.5, se = F) +
+  geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
+  facet_grid(riverOrdered ~ cohort) +
+  theme_publication()
+
+
+# gam models
+library(mgcv)
+mod_bnt <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% filter(cohort %in% 2000:2013,species == 'bnt'))
+summary(mod1_bnt)
+
+mod_bkt <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% filter(cohort %in% 2000:2013,species == 'bkt'))
+summary(mod_bkt)
+
+mod_ats <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% filter(species == 'ats'))
+summary(mod_ats)
+
+#######################
+
+# 1. Do we need a RE on year in s()? YES
+mod0a <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod1)
+
+mod0 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod1)
+
+AIC(mod0,mod0a) %>% rownames_to_column() %>% arrange(AIC)
+
+# 2. Best structure for year,species,river
+mod1 <- gam(observedLength ~ species + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+mod2 <- gam(observedLength ~ river + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+# river expains the most for 1-variable models
+AIC(mod0,mod1,mod2) %>% rownames_to_column() %>% arrange(AIC)
+
+# 2-way models
+mod3 <- gam(observedLength ~ year * species + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+mod4 <- gam(observedLength ~ year * riverOrdered * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod4)
+
+mod5 <- gam(observedLength ~ species * riverOrdered * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod4)
+
+# mod5 is best
+AIC(mod0,mod1,mod2,mod3,mod4,mod5) %>% rownames_to_column() %>% arrange(AIC)
+
+# 3-way models
+mod6 <- gam(observedLength ~ year * species * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+# https://www.fromthebottomoftheheap.net/2017/12/14/difference-splines-ii/
+# calculates differences from overall spline for each year
+# a lot slower
+vB$yearOrdered <- factor(vB$year, levels = 2000:2013)
+mod6a <- gam(observedLength ~ year * species * riverOrdered + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+# try with river instead of riverOrdered
+mod6b <- gam(observedLength ~ year * species * river + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod6b)
+
+
+# 3-way is best
+AIC(mod1,mod2,mod3,mod4,mod5,mod6,mod6a) %>% rownames_to_column() %>% arrange(AIC)
+
+# Any additive 3-way better? NO
+mod7 <- gam(observedLength ~ year + species * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
+
+mod8 <- gam(observedLength ~ year * species + riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
+
+mod9 <- gam(observedLength ~ year + species + riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
+
+
+AIC(mod1,mod2,mod3,mod4,mod5,mod6,mod7,mod8,mod9) %>% rownames_to_column() %>% arrange(AIC)
+
+summary(mod6)
+plot(mod6)
+
+hist(resid(mod6))
+gam.check(mod6)
+
+
+# try spline on year - no real advantage, except we can see the squiggle
+mod6a <- gam(cf ~ species * riverOrdered + 
+                              s(ydayCumul, bs = 'cr') + 
+                              s(year), 
+             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), 
+             method = "REML")
+plot(mod6a, scale = 0)
+summary(mod6a)
+
+
+```
+
+
+
+```{r mean lengths by grouping Variable}
 
 #####################################################
 #####################################################
-# SElect THIS for metaPop analysis, or
+
+# Select THIS for whole pop analysis, or
+groupingVariables <- c('species','ageInSamples','year','season','age')
+groupingVariablesNoYear <- c('species','ageInSamples','season','age')
+riverGroupVar <- NULL
+
+# Select THIS for metaPop analysis, or
 #groupingVariables <- c('species','metaPop01','ageInSamples', 'year','season','age')
 #groupingVariablesNoYear <- c('species','metaPop01','ageInSamples','season','age')
+#riverGroupVar <- groupingVariables[2]
 
 # THIS for 4 river analysis
-groupingVariables <- c('species','riverOrdered','ageInSamples','year','season','age')
-groupingVariablesNoYear <- c('species','riverOrdered','ageInSamples','season','age')
-
+#groupingVariables <- c('species','riverOrdered','ageInSamples','year','season','age')
+#groupingVariablesNoYear <- c('species','riverOrdered','ageInSamples','season','age')
+#riverGroupVar <- groupingVariables[2]
 #####################################################
 #####################################################
-
-riverGroupVar <- groupingVariables[2]
-
 
 # Has mean size changed over time?
 means <- 
   cd %>% mutate( age = year - cohort,
                  metaPop01 = ifelse(riverOrdered == 'wb obear', 0 ,1)) %>%
-    filter( ageInSamples %in% 1:10, age < 3, year < 2016, area %in% c('inside','trib'), enc == 1
+    filter( ageInSamples %in% 1:9, age < 3, year < 2016, area %in% c('inside','trib'), enc == 1
             #!(riverOrdered == 'wb mitchell' & ageInSamples > 8) #low sample sizes
             ) %>% 
     group_by_at(vars(one_of(groupingVariables))) %>%
@@ -109,6 +254,7 @@ means <-
 
 means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
 means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+means$metaPop01GG <- factor(means$metaPop01, levels = c(0,1), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
 
 lenSlopes <- means %>%
   group_by_at(vars(one_of(groupingVariablesNoYear))) %>%
@@ -295,6 +441,7 @@ summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bnt')
 
 
 ```
+
 
 ```{r where are the fish?}
 
