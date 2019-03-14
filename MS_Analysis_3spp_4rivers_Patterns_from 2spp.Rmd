@@ -17,6 +17,7 @@ riverOrderedIn <- factor(c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),l
 Plots for the manuscript
 
 ```{r Load data, message=FALSE}
+library(itsadug)
 library(arm)
 library(relaimpo)
 library(linkedModels)
@@ -137,60 +138,90 @@ mod_ats <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% fi
 summary(mod_ats)
 
 #######################
+vB$yearFactor <- factor(vB$year)
+vB$yearOrdered <- factor(vB$year, levels = 2000:2013)
+vB$yearOrderedSpecies <- factor(paste(vB$yearOrdered,vB$species, sep = '_'))
 
-# 1. Do we need a RE on year in s()? YES
-mod0a <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-summary(mod1)
+# 1. Do we need a RE on year in s()? YES, yearOrdered is best
+# 
+mod0_0 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr'), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
-mod0 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-summary(mod1)
+mod0_1 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
-AIC(mod0,mod0a) %>% rownames_to_column() %>% arrange(AIC)
+mod0_2 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr', by = (yearFactor)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+mod0_3 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+mod0_4 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr', by = (yearOrderedSpecies)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+AIC(mod0_0,mod0_1,mod0_2,mod0_3,mod0_4) %>% rownames_to_column() %>% arrange(AIC)
+
+# 2. structure of smooths
+# with ordered factor, need to include an overall smooth, http://www.sfs.uni-tuebingen.de/~jvanrij/Tutorial/GAMM.html 
+mod0_3a <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+mod0_3b <- gam(observedLength ~ yearOrdered + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+# mod0_3b is best, but we want to estimate a trend as in mod0_3a
+# add + s(ydayCumul, bs = 'cr') to models
+AIC(mod0_3,mod0_3a,mod0_3b) %>% rownames_to_column() %>% arrange(AIC)
+
+
+# 3. gam vs. bam for this big dataset? bam() is MUCH faster!
+system.time( mod0_3a_1 <- gam(observedLength ~ year + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML") )
+# 316 sec
+summary(mod0_3a_1)
+
+system.time( mod0_3a_2 <- bam(observedLength ~ year + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML") )
+# 8 sec
+summary(mod0_3a_2)
+
+# 4. bs = 'cr', vs default 'tp'. AIC for 'cr' is ~ 300 lower. Stick with 'cr'
+mod0_3a_2a <- bam(observedLength ~ year + s(ydayCumul) + s(ydayCumul, by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+AIC(mod0_3a_2,mod0_3a_2a)
+
+# 5. Include Individual as a RE??
+# Taking a long time, maybe run overnight
+vB$tagIndexFactor <- factor(vB$tagIndex)
+system.time( mod0_3a_3 <- bam(observedLength ~ year + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = (yearOrdered)) + s(ydayCumul, tagIndexFactor, bs="fs", m=1), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML") )
+# sec
+compareML(mod0_3a_3,mod0_3a_2)
+
+
+
+
 
 # 2. Best structure for year,species,river
-mod1 <- gam(observedLength ~ species + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+mod0 <- bam(observedLength ~ year + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
-mod2 <- gam(observedLength ~ river + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+mod1 <- bam(observedLength ~ species + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+
+mod2 <- bam(observedLength ~ river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
 # river expains the most for 1-variable models
 AIC(mod0,mod1,mod2) %>% rownames_to_column() %>% arrange(AIC)
 
 # 2-way models
-mod3 <- gam(observedLength ~ year * species + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+mod3 <- bam(observedLength ~ year * species + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
-mod4 <- gam(observedLength ~ year * riverOrdered * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-summary(mod4)
+mod4 <- bam(observedLength ~ year * river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
-mod5 <- gam(observedLength ~ species * riverOrdered * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-summary(mod4)
+mod5 <- bam(observedLength ~ species * river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 
-# mod5 is best
+# mod4 is best
 AIC(mod0,mod1,mod2,mod3,mod4,mod5) %>% rownames_to_column() %>% arrange(AIC)
 
 # 3-way models
-mod6 <- gam(observedLength ~ year * species * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-
-# https://www.fromthebottomoftheheap.net/2017/12/14/difference-splines-ii/
-# calculates differences from overall spline for each year
-# a lot slower
-vB$yearOrdered <- factor(vB$year, levels = 2000:2013)
-mod6a <- gam(observedLength ~ year * species * riverOrdered + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-
-# try with river instead of riverOrdered
-mod6b <- gam(observedLength ~ year * species * river + s(ydayCumul, bs = 'cr', by = (yearOrdered)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
-summary(mod6b)
-
-
-# 3-way is best
-AIC(mod1,mod2,mod3,mod4,mod5,mod6,mod6a) %>% rownames_to_column() %>% arrange(AIC)
+mod6 <- bam(observedLength ~ year * species * river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod6)
 
 # Any additive 3-way better? NO
-mod7 <- gam(observedLength ~ year + species * riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
+mod7 <- bam(observedLength ~ year + species * river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
 
-mod8 <- gam(observedLength ~ year * species + riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
+mod8 <- bam(observedLength ~ year * species + river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
 
-mod9 <- gam(observedLength ~ year + species + riverOrdered + s(ydayCumul, bs = 'cr', by = (year)), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
-
+mod9 <- bam(observedLength ~ year + species + river + s(ydayCumul, bs = 'cr') + s(ydayCumul, bs = 'cr', by = yearOrdered), data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')))
 
 AIC(mod1,mod2,mod3,mod4,mod5,mod6,mod7,mod8,mod9) %>% rownames_to_column() %>% arrange(AIC)
 
