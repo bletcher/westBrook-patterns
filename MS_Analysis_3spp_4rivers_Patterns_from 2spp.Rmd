@@ -150,6 +150,8 @@ vB$speciesOrdered <- factor(vB$species, levels = c('bkt','bnt'), ordered = T)
 vB$cohortSpeciesRiver <- factor(paste(vB$cohortOrdered,vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
 
 vB$speciesRiver <- factor(paste(vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
+vB$speciesCohort <- factor(paste(vB$speciesOrdered,vB$cohortOrdered, sep = '_'), ordered = T)
+vB$cohortRiver <- factor(paste(vB$cohortOrdered,vB$riverOrdered, sep = '_'), ordered = T)
 
 # 1. Do we need separate splines on cohort in s()? YES, cohortOrdered is best
 # 
@@ -293,7 +295,7 @@ ggplot(predGrid2, aes(ydayCumul,pred, color = species)) +
 
 
 
-
+# by cohortSpeciesRiver - model is overfit
 
 mod6csr <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
@@ -320,28 +322,77 @@ ggplot(predGrid2, aes(ydayCumul,pred, color = species)) +
 
 
 
+# by speciesRiver
 
-
-mod6sr <- bam(observedLength ~ cohort * species * river + 
+mod6SR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', by = speciesRiver), 
              data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
 summary(mod6sr)
 
-predGrid <- expand.grid(speciesRiver = unique(mod6sr$model$speciesRiver),
+predGridSR <- expand.grid(speciesRiver = unique(mod6SR$model$speciesRiver),
                         cohort = 2000:2013,
                         ydayCumul = seq(250,1000, by = 30)) %>%
                  mutate(species = substr(speciesRiver,1,3),
                         river = substring(speciesRiver,5))
 
 
-pred <- predict(mod6sr, newdata = predGrid)#, type = 'lpmatrix')
+predSR <- predict(mod6SR, newdata = predGrid)#, type = 'lpmatrix')
 
-predGrid2 <- bind_cols(predGrid,as.data.frame(pred))
+predGrid2SR <- bind_cols(predGridSR,as.data.frame(predSR))
 
-ggplot(predGrid2, aes(ydayCumul,pred, color = species)) +
+ggplot(predGrid2SR, aes(ydayCumul,pred, color = species)) +
   geom_point() + 
   geom_line() +
+  facet_grid(river ~ cohort)
+
+# by speciesCohort
+
+mod6SC <- bam(observedLength ~ cohort * species * river + 
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', by = speciesCohort), 
+             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod6SC)
+
+predGridSC <- expand.grid(speciesCohort = unique(mod6SC$model$speciesCohort),
+                        river = unique(vB$riverOrdered),
+                        ydayCumul = seq(250,1000, by = 30)) %>%
+                 mutate(species = substr(speciesCohort,1,3),
+                        cohort = as.numeric(substring(speciesCohort,5)))
+
+
+predSC <- predict(mod6SC, newdata = predGridSC)#, type = 'lpmatrix')
+
+predGrid2SC <- bind_cols(predGridSC,as.data.frame(predSC))
+
+ggplot(predGrid2SC, aes(ydayCumul,predSC, color = species)) +
+  geom_point() + 
+  geom_line() +
+  facet_grid(river ~ cohort)
+
+# by cohortRiver
+
+mod6CR <- bam(observedLength ~ cohort * species * river + 
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', by = cohortRiver), 
+             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+summary(mod6CR)
+
+predGridCR <- expand.grid(cohortRiver = unique(mod6CR$model$cohortRiver),
+                        species = c('bkt','bnt'),
+                        ydayCumul = seq(250,1000, by = 30)) %>%
+                 mutate(cohort = as.numeric(substr(cohortRiver,1,4)),
+                        river = (substring(cohortRiver,6)))
+
+
+predCR <- predict(mod6CR, newdata = predGridCR)#, type = 'lpmatrix')
+
+predGrid2CR <- bind_cols(predGridCR,as.data.frame(predCR))
+
+ggplot(predGrid2CR, aes(ydayCumul, predCR, color = species)) +
+  geom_point() + 
+  geom_line() +
+  ylim(50,200) +
   facet_grid(river ~ cohort)
 
 
