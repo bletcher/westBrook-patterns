@@ -109,9 +109,9 @@ vB$cohortRiverOrdered <- factor(paste(vB$cohortOrdered,vB$riverOrdered, sep = '_
 vB$cohortSpeciesRiverOrdered <- factor(paste(vB$cohortOrdered,vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
 
 ##########################################################
-# by cohortSpeciesRiver - model is overfit?
+# by cohortSpeciesRiver 
 
-modCSR <- bam(observedLength ~ cohortCentered * species * river + 
+modCSR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', by = speciesOrdered) +
@@ -124,12 +124,16 @@ modCSR <- bam(observedLength ~ cohortCentered * species * river +
 summary(modCSR)
 #plot(modCSR)
 
-predGridCSR <- expand.grid(cohortSpeciesRiver = unique(modCSR$model$cohortSpeciesRiver),
+predGridCSR <- expand.grid(cohortSpeciesRiverOrdered = unique(modCSR$model$cohortSpeciesRiverOrdered),
                            ydayCumul = seq(250,1000, by = 30)) %>%
-                    mutate(cohortOrdered = as.numeric(substr(cohortSpeciesRiver,1,4)),
-                           speciesOrdered = substr(cohortSpeciesRiver,6,8),
-                           riverOrdered = substring(cohortSpeciesRiver,10),
+                    mutate(cohortOrdered = as.numeric(substr(cohortSpeciesRiverOrdered,1,4)),
+                           speciesOrdered = substr(cohortSpeciesRiverOrdered,6,8),
+                           riverOrdered = substring(cohortSpeciesRiverOrdered,10),
+                           cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
+                           speciesCohortOrdered = paste(speciesOrdered, cohortOrdered, sep = '_'),
+                           speciesRiverOrdered = paste(speciesOrdered, riverOrdered, sep = '_'),
                            cohortCentered = cohortOrdered - cohortOffset,
+                           cohort = cohortOrdered,
                            species = speciesOrdered,
                            river = riverOrdered)
 
@@ -137,7 +141,46 @@ predCSR <- predict(modCSR, newdata = predGridCSR)#, type = 'lpmatrix')
 
 predGrid2CSR <- bind_cols(predGridCSR,as.data.frame(predCSR))
 
-ggplot(predGrid2CSR, aes(ydayCumul,pred, color = species)) +
+ggplot(predGrid2CSR, aes(ydayCumul,predCSR, color = species)) +
+  geom_point() + 
+  geom_line() +
+  ylim(50,210) +
+  facet_grid(river ~ cohort)
+
+##########################################################
+# by cohortSpeciesRiver - additive splines
+system.time(
+modCSR_add <- bam(observedLength ~ cohort * species * river + 
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', by = cohortRiverOrdered) +
+               s(ydayCumul, bs = 'cr', by = speciesCohortOrdered) +
+               s(ydayCumul, bs = 'cr', by = speciesRiverOrdered), 
+             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+)
+summary(modCSR_add)
+#plot(modCSR_add)
+
+predGridCSR_add <- expand.grid(cohortSpeciesRiverOrdered = unique(modCSR_add$model$cohortSpeciesRiverOrdered),
+                           ydayCumul = seq(250,1000, by = 30)) %>%
+                    mutate(cohortOrdered = as.numeric(substr(cohortSpeciesRiverOrdered,1,4)),
+                           speciesOrdered = substr(cohortSpeciesRiverOrdered,6,8),
+                           riverOrdered = substring(cohortSpeciesRiverOrdered,10),
+                           cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
+                           speciesCohortOrdered = paste(speciesOrdered, cohortOrdered, sep = '_'),
+                           speciesRiverOrdered = paste(speciesOrdered, riverOrdered, sep = '_'),
+                           cohortCentered = cohortOrdered - cohortOffset,
+                           cohort = cohortOrdered,
+                           species = speciesOrdered,
+                           river = riverOrdered)
+
+predCSR_add <- predict(modCSR_add, newdata = predGridCSR_add)#, type = 'lpmatrix')
+
+predGrid2CSR_add <- bind_cols(predGridCSR_add,as.data.frame(predCSR_add))
+
+ggplot(predGrid2CSR_add, aes(ydayCumul,predCSR_add, color = species)) +
   geom_point() + 
   geom_line() +
   ylim(50,210) +
@@ -145,9 +188,9 @@ ggplot(predGrid2CSR, aes(ydayCumul,pred, color = species)) +
 
 
 ##########################################################
-# by speciesRiver ##########################################################
+# by speciesRiver 
 
-modSR <- bam(observedLength ~ cohortCentered * species * river + 
+modSR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', by = speciesOrdered) +
                s(ydayCumul, bs = 'cr', by = riverOrdered) +
@@ -162,6 +205,7 @@ predGridSR <- expand.grid(speciesRiverOrdered = unique(modSR$model$speciesRiverO
                    mutate(speciesOrdered = substr(speciesRiverOrdered,1,3),
                           riverOrdered = substring(speciesRiverOrdered,5),
                           cohortCentered = cohortOrdered - cohortOffset,
+                          cohort = cohortOrdered,
                           species = speciesOrdered,
                           river = riverOrdered)
 
@@ -176,7 +220,7 @@ ggplot(predGrid2SR, aes(ydayCumul,predSR, color = species)) +
 
 # by speciesCohort
 system.time(
-modSC <- bam(observedLength ~ cohortCentered * species * river + 
+modSC <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', by = speciesOrdered) +
@@ -192,6 +236,7 @@ predGridSC <- expand.grid(speciesCohortOrdered = unique(modSC$model$speciesCohor
                    mutate(speciesOrdered = substr(speciesCohortOrdered,1,3),
                           cohortOrdered = as.numeric(substring(speciesCohortOrdered,5)),
                           cohortCentered = cohortOrdered - cohortOffset,
+                          cohort = cohortOrdered,
                           species = speciesOrdered)
 
 predSC <- predict(modSC, newdata = predGridSC)#, type = 'lpmatrix')
@@ -205,7 +250,7 @@ ggplot(predGrid2SC, aes(ydayCumul,predSC, color = species)) +
 
 # by cohortRiver
 
-modCR <- bam(observedLength ~ cohortCentered * species * river + 
+modCR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', by = riverOrdered) +
@@ -236,9 +281,11 @@ ggplot(predGrid2CR, aes(ydayCumul, predCR, color = species)) +
 
 #############################
 
-# add year to smooths
+# add year to smooths, model seems overfit
 
-modCSRY <- bam(observedLength ~ cohortCentered * species * river + 
+# try running without 'speciesOrdered' for year  this does a difference from the main fit, i.e. try s(year, bs = 'cr', by = speciesFactor)
+
+modCSRY <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', by = speciesOrdered) +
@@ -247,24 +294,50 @@ modCSRY <- bam(observedLength ~ cohortCentered * species * river +
                s(ydayCumul, bs = 'cr', by = speciesCohortOrdered) +
                s(ydayCumul, bs = 'cr', by = speciesRiverOrdered) +
                s(ydayCumul, bs = 'cr', by = cohortSpeciesRiverOrdered) +
-               s(year, bs = 'cr', by = speciesOrdered), 
+               #s(year, bs = 'cr', by = speciesOrdered), 
+               s(year, bs = 'cr', by = speciesFactor),
                data = vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt','bnt')), 
                method = "REML")
 summary(modCSRY)
+#plot(modCSRY, select = 189)
+
+predGridCSRY <- expand.grid(cohortSpeciesRiverOrdered = unique(modCSRY$model$cohortSpeciesRiverOrdered),
+                            year = unique(modCSRY$model$year),
+                            ydayCumul = seq(250,1000, by = 30)) %>%
+                    mutate(cohortOrdered = as.numeric(substr(cohortSpeciesRiverOrdered,1,4)),
+                           speciesOrdered = substr(cohortSpeciesRiverOrdered,6,8),
+                           riverOrdered = substring(cohortSpeciesRiverOrdered,10),
+                           cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
+                           speciesCohortOrdered = paste(speciesOrdered, cohortOrdered, sep = '_'),
+                           speciesRiverOrdered = paste(speciesOrdered, riverOrdered, sep = '_'),
+                           cohortCentered = cohortOrdered - cohortOffset,
+                           cohort = cohortOrdered,
+                           species = speciesOrdered,
+                           river = riverOrdered)
+
+predCSRY <- predict(modCSRY, newdata = predGridCSRY)#, type = 'lpmatrix')
+
+predGrid2CSRY <- bind_cols(predGridCSRY,as.data.frame(predCSRY))
+
+ggplot(predGrid2CSRY, aes(ydayCumul, predCSRY, color = species)) +
+  geom_point() + 
+  geom_line() +
+  ylim(50,300) +
+  facet_grid(river ~ cohortOrdered)
 
 ################################################################################
 
 # base model
 
-mod <- bam(observedLength ~ cohortCentered * species * river + 
+mod <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr'), 
                data = vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt','bnt')), 
                method = "REML")
 summary(modCSRY)
 
 
-
-AIC(modCSRY,modCSR,modSR,modSC,modCR,mod)  %>% rownames_to_column() %>% arrange(AIC)
+save(mod,modCR,modCSR,modSC,modSR,modCSRY, file = './data/out/mods.RData')
+AIC(modCSR,modSR,modSC,modCR,mod)  %>% rownames_to_column() %>% arrange(AIC)
 
 
 
