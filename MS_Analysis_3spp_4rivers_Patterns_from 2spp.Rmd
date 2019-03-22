@@ -108,19 +108,25 @@ vB$cohortRiverOrdered <- factor(paste(vB$cohortOrdered,vB$riverOrdered, sep = '_
 # 3-way
 vB$cohortSpeciesRiverOrdered <- factor(paste(vB$cohortOrdered,vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
 
+kIn <- 4
+dataIn <- vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt','bnt'))
+```
+
+``` {r gam models}
+
 ##########################################################
 # by cohortSpeciesRiver 
 
 modCSR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
-               s(ydayCumul, bs = 'cr', by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesOrdered) +
-               s(ydayCumul, bs = 'cr', by = riverOrdered) +
-               s(ydayCumul, bs = 'cr', by = cohortRiverOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesCohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesRiverOrdered) +
-               s(ydayCumul, bs = 'cr', by = cohortSpeciesRiverOrdered), 
-             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortSpeciesRiverOrdered), 
+             data = dataIn, method = "REML")
 summary(modCSR)
 #plot(modCSR)
 
@@ -153,13 +159,13 @@ ggplot(predGrid2CSR, aes(ydayCumul,predCSR, color = species)) +
 system.time(
 modC_S_R <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
-               s(ydayCumul, bs = 'cr', by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesOrdered) +
-               s(ydayCumul, bs = 'cr', by = riverOrdered) +
-               s(ydayCumul, bs = 'cr', by = cohortRiverOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesCohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesRiverOrdered), 
-             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered), 
+             data = dataIn, method = "REML")
 )
 summary(modC_S_R)
 #plot(modC_S_R)
@@ -194,10 +200,10 @@ ggplot(predGrid2C_S_R, aes(ydayCumul,predC_S_R, color = species)) +
 
 modSR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
-               s(ydayCumul, bs = 'cr', by = speciesOrdered) +
-               s(ydayCumul, bs = 'cr', by = riverOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesRiverOrdered), 
-             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered), 
+             data = dataIn, method = "REML")
 summary(modSR)
 #plot(modSR, scale = 0)
 
@@ -226,10 +232,10 @@ ggplot(predGrid2SR, aes(ydayCumul,predSR, color = species)) +
 system.time(
 modSC <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
-               s(ydayCumul, bs = 'cr', by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesCohortOrdered), 
-             data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered), 
+             data = dataIn, method = "REML")
 )
 summary(modSC)
 #plot(modSC, scale = 0)
@@ -258,10 +264,10 @@ ggplot(predGrid2SC, aes(ydayCumul,predSC, color = species)) +
 
 modCR <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
-               s(ydayCumul, bs = 'cr', by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = riverOrdered) +
-               s(ydayCumul, bs = 'cr', by = cohortRiverOrdered), 
-               data = vB %>% filter(cohort %in% 2000:2013,species %in% c('bkt','bnt')), method = "REML")
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered), 
+               data = dataIn, method = "REML")
 summary(modCR)
 #plot(modCR, scale = 0)
 
@@ -294,19 +300,19 @@ ggplot(predGrid2CR, aes(ydayCumul, predCR, color = species)) +
 
 modCSRY <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr') +
-               s(ydayCumul, bs = 'cr', by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesOrdered) +
-               s(ydayCumul, bs = 'cr', by = riverOrdered) +
-               s(ydayCumul, bs = 'cr', by = cohortRiverOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesCohortOrdered) +
-               s(ydayCumul, bs = 'cr', by = speciesRiverOrdered) +
-               s(ydayCumul, bs = 'cr', by = cohortSpeciesRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortSpeciesRiverOrdered) +
                #s(year, bs = 'cr', by = speciesOrdered), 
-               s(year, bs = 'cr', by = speciesFactor),
-               data = vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt','bnt')), 
+               s(year, bs = 'cr', k = kIn, by = speciesFactor),
+               data = dataIn, 
                method = "REML")
 summary(modCSRY)
-#plot(modCSRY, select = 189)
+plot(modCSRY, pages=10, scale = 0)
 
 predGridCSRY <- expand.grid(cohortSpeciesRiverOrdered = unique(modCSRY$model$cohortSpeciesRiverOrdered),
                             year = unique(modCSRY$model$year),
@@ -333,13 +339,60 @@ ggplot(predGrid2CSRY, aes(ydayCumul, predCSRY, color = species)) +
   facet_grid(river ~ cohortOrdered) +
   ggtitle('modCSRY')
 
+
+# trying a couple of models
+modCSRC <- bam(observedLength ~ cohort * species * river + 
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortSpeciesRiverOrdered) +
+               #s(year, bs = 'cr', by = speciesOrdered), 
+               s(cohort, bs = 'cr', k = kIn, by = speciesFactor),
+               data = dataIn, 
+               method = "REML")
+summary(modCSRC)
+plot(modCSRC, pages=8, scale = 0)
+
+modC_S_RC <- bam(observedLength ~ cohort + species + river + 
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortSpeciesRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = speciesFactor),
+               data = dataIn, 
+               method = "REML")
+summary(modC_S_RC)
+plot(modCSRC, pages=8, scale = 0)
+
+# modCSR_Ind <- bam(observedLength ~ cohort * species * river + 
+#                s(ydayCumul, bs = 'cr') +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = speciesOrdered) +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = speciesCohortOrdered) +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = speciesRiverOrdered) +
+#                s(ydayCumul, bs = 'cr', k = kIn, by = cohortSpeciesRiverOrdered) +
+#                s(ydayCumul, tagIndexFactor, bs="fs", m=1, k = kIn),
+#                data = dataIn, 
+#                method = "REML")
+# summary(modCSR_Ind)
+
 ################################################################################
 
 # base model
 
 mod <- bam(observedLength ~ cohort * species * river + 
                s(ydayCumul, bs = 'cr'), 
-               data = vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt','bnt')), 
+               data = dataIn, 
                method = "REML")
 summary(mod)
 
@@ -367,7 +420,7 @@ ggplot(predGrid2, aes(ydayCumul, pred, color = species)) +
 ##########################################
 
 save(mod,modCR,modCSR,modSC,modSR,modCSRY,modC_S_R, file = './data/out/mods.RData')
-AIC(modC_S_R,modCSR,modSR,modSC,modCR,mod)  %>% rownames_to_column() %>% arrange(AIC)
+AIC(modC_S_RC,modC_S_R,modCSR,modSR,modSC,modCR,mod)  %>% rownames_to_column() %>% arrange(AIC)
 
 
 
