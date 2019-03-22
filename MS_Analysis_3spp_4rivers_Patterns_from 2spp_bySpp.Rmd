@@ -36,7 +36,7 @@ cd <- cd %>% mutate(observedWeight = ifelse(observedWeight == -9999.9, NA, obser
 ```
 
 
-```{r gams for body size - model selection}
+```{r gams for body size - data prep}
 speciesIn <- 'bnt'
 depVarIn <- 'observedLength'
 kIn <- 4 # # of knots for the speces and river smooths
@@ -53,6 +53,41 @@ vB <-
             #!(riverOrdered == 'wb mitchell' & ageInSamples > 8) #low sample sizes
             )
 
+cohortOffset <- 2006
+
+# 1-way
+vB$cohortFactor <- factor(vB$cohort)
+vB$cohortOrdered <- factor(vB$cohort, levels = 2000:2013, ordered = T)
+#vB$cohortFactorCentered <- vB$cohortFactor - 2006
+vB$cohortCentered <- vB$cohort - cohortOffset
+
+vB$speciesFactor <- factor(vB$species, levels = c('bkt','bnt'))
+vB$speciesOrdered <- factor(vB$species, levels = c('bkt','bnt'), ordered = T)
+
+vB$riverFactor <- factor(vB$river, levels=c('west brook', 'wb jimmy', 'wb mitchell', 'wb obear'))
+#vB$riverOrdered <- riverOrdered exists
+
+# 2-way
+vB$speciesRiverOrdered <- factor(paste(vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
+vB$speciesCohortOrdered <- factor(paste(vB$speciesOrdered,vB$cohortOrdered, sep = '_'), ordered = T)
+vB$cohortRiverOrdered <- factor(paste(vB$cohortOrdered,vB$riverOrdered, sep = '_'), ordered = T)
+
+# 3-way
+vB$cohortSpeciesRiverOrdered <- factor(paste(vB$cohortOrdered,vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
+
+vB$tagIndexFactor <- factor(vB$tagIndex)
+
+#vB$riverOrdered <- factor(vB$river,
+#                         levels=c('west brook', 'wb jimmy', 'wb mitchell', 'wb obear'),
+#                         ordered = T)
+
+dataIn <- vB %>% filter(cohort %in% 2000:2013, species %in% speciesIn)
+kIn <- 4
+```
+
+Run to here to start
+
+```{r raw data graphs}
 # number of knots from gam 
 kValue <- 9 # from mod6 below, just for graphing
 
@@ -86,40 +121,12 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'))
   geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
   facet_grid(riverOrdered ~ cohort) +
   theme_publication()
+```
 
+```{r gam models}
 ####################################
 # gam models
 
-cohortOffset <- 2006
-
-# 1-way
-vB$cohortFactor <- factor(vB$cohort)
-vB$cohortOrdered <- factor(vB$cohort, levels = 2000:2013, ordered = T)
-#vB$cohortFactorCentered <- vB$cohortFactor - 2006
-vB$cohortCentered <- vB$cohort - cohortOffset
-
-vB$speciesFactor <- factor(vB$species, levels = c('bkt','bnt'))
-vB$speciesOrdered <- factor(vB$species, levels = c('bkt','bnt'), ordered = T)
-
-vB$riverFactor <- factor(vB$river, levels=c('west brook', 'wb jimmy', 'wb mitchell', 'wb obear'))
-#vB$riverOrdered <- riverOrdered exists
-
-# 2-way
-vB$speciesRiverOrdered <- factor(paste(vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
-vB$speciesCohortOrdered <- factor(paste(vB$speciesOrdered,vB$cohortOrdered, sep = '_'), ordered = T)
-vB$cohortRiverOrdered <- factor(paste(vB$cohortOrdered,vB$riverOrdered, sep = '_'), ordered = T)
-
-# 3-way
-vB$cohortSpeciesRiverOrdered <- factor(paste(vB$cohortOrdered,vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
-
-vB$tagIndexFactor <- factor(vB$tagIndex)
-
-#vB$riverOrdered <- factor(vB$river,
-#                         levels=c('west brook', 'wb jimmy', 'wb mitchell', 'wb obear'),
-#                         ordered = T)
-
-dataIn <- vB %>% filter(cohort %in% 2000:2013, species %in% speciesIn)
-kIn <- 4
 ################################################################################
 
 # base model
@@ -294,7 +301,7 @@ save(mod,modC,modR,modC_R,modCR,modCR_c, file = paste0('./data/out/mods_',specie
 
 ```
 
-```{r best models}
+```{r best models for each species}
 
 # Brook trout
 
@@ -331,7 +338,7 @@ modBNT <- bam(observedLength ~ cohort * river +
                s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn), 
-             data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bkt'), method = "REML")
+             data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bnt'), method = "REML")
 
 summary(modBNT)
 #plot(modBNT, pages = 8, scale = 0)
@@ -359,6 +366,14 @@ predGrid2Both$riverGG <- factor(predGrid2Both$riverOrdered,
                          labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
 predGrid2Both$speciesGG <- factor(predGrid2Both$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
 
+save(modBKT,modBNT,predBKT,predBNT,predGrid2Both, file = paste0('./data/out/bestModsBKTBNT.RData'))
+
+```
+
+```{r graphs of best models}
+# load('./data/out/bestModsBKTBNT.RData')
+
+# cohorts by river/species
 ggplot(predGrid2Both, aes(ydayCumul, pred, group = cohort, color = cohort)) +
   geom_point() + 
   geom_line() +
@@ -375,8 +390,57 @@ ggplot(predGrid2Both, aes(ydayCumul, pred, group = cohort, color = cohort)) +
                                 ticks = FALSE,
                                 nbin = 100)) +
 #  guide_legend(title = 'Cohort') +
-  facet_grid(speciesGG ~ riverGG) 
+  facet_grid(speciesGG ~ riverGG, scales = 'free_y') 
   
+# specific splines
+library(gratia)
+cohortBKT <- evaluate_smooth(modBKT, "s(cohort)") %>% mutate(species = 'bkt')
+cohortBNT <- evaluate_smooth(modBNT, "s(cohort)") %>% mutate(species = 'bnt')
+cohortBoth <- bind_rows(cohortBKT,cohortBNT) %>% mutate(upperCI = est + se * 1.96, lowerCI = est - se * 1.96)
+
+cohortBoth$speciesGG <- factor(cohortBoth$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(cohortBoth, aes(cohort, group = speciesGG)) + 
+  geom_ribbon(aes( ymin = lowerCI, ymax = upperCI), fill  = 'grey70') +
+  geom_line(aes(y = est, linetype = speciesGG), size = 1.5) +
+  labs(y = 'Effect size',
+       x = 'Cohort',
+       linetype = 'Species') +
+  theme_publication() +
+  theme(legend.position = "right", 
+        legend.direction = "vertical",
+        legend.title = element_text(face="plain")) 
+
+
+# main spline over ydayCumul
+plotBKT = plot.gam(modBKT, select = 1)
+plotBNT = plot.gam(modBNT, select = 1)
+
+plotBKTydayCumul <- data.frame(x = plotBKT[[1]]$x, y = plotBKT[[1]]$fit, se = plotBKT[[1]]$se) %>% mutate(species = 'bkt')
+plotBNTydayCumul <- data.frame(x = plotBNT[[1]]$x, y = plotBNT[[1]]$fit, se = plotBNT[[1]]$se) %>% mutate(species = 'bnt')
+plotBothydayCumul <- bind_rows(plotBKTydayCumul,plotBNTydayCumul) %>% mutate(upperCI = y + se * 1.96, lowerCI = y - se * 1.96)
+
+plotBothydayCumul$speciesGG <- factor(plotBothydayCumul$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(plotBothydayCumul, aes(x, group = speciesGG)) + 
+  geom_ribbon(aes( ymin = lowerCI, ymax = upperCI, fill  = speciesGG), alpha = 0.5) +
+  geom_line(aes(y = y, linetype = speciesGG), size = 1.5) +
+  scale_fill_manual(values = c('grey30', 'grey70')) +
+  labs(y = 'Predicted body size (mm)',
+       x = 'Days since age-0 Jan 1',
+       linetype = 'Species') +
+  theme_publication() +
+  theme(legend.position = "right", 
+        legend.direction = "vertical",
+        legend.title = element_text(face="plain")) 
+
+# main 
+
+
+ggplot(tmp2, aes(x,y)) + geom_line()
+
+appraise(modBKT)
+
 
 ```
 
