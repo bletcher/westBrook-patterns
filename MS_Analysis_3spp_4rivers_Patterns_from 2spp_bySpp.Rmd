@@ -37,7 +37,7 @@ cd <- cd %>% mutate(observedWeight = ifelse(observedWeight == -9999.9, NA, obser
 
 
 ```{r gams for body size - data prep}
-speciesIn <- 'bnt'
+speciesIn <- 'bkt'
 depVarIn <- 'observedLength'
 kIn <- 4 # # of knots for the speces and river smooths
 
@@ -81,9 +81,36 @@ vB$tagIndexFactor <- factor(vB$tagIndex)
 #                         levels=c('west brook', 'wb jimmy', 'wb mitchell', 'wb obear'),
 #                         ordered = T)
 
-dataIn <- vB %>% filter(cohort %in% 2000:2013, species %in% speciesIn)
-kIn <- 4
+vB$salmon01 <- ifelse(vB$cohort <=2004, 1, 0)
+
+
 ```
+
+```{r cohort strength}
+
+cohortStrength <- vB %>%
+  distinct(tagIndex, species, metaPop01, cohort) %>% #ignoring 10 fish that were in both o'bear and WB
+  group_by(species, metaPop01, cohort) %>%
+  summarize(cohortStrength = n()) %>%
+  filter(!(cohort <2000 & species !='ats')) %>% # no trib data
+  mutate(cohortStrengthScaled = scale(cohortStrength))
+
+vB <- left_join(vB, cohortStrength)
+
+ggplot(cohortStrength, aes(cohort, cohortStrengthScaled, group = species, linetype = species, shape = species)) +
+  geom_point(size = 2) +
+  geom_line(size = 1.1, color = 'grey40') +
+  labs(x = 'Cohort',
+       y = 'Cohort strength') +
+  theme_publication() +
+  facet_grid(~metaPop01)
+  
+```
+
+```{r dataIn}
+dataIn <- vB %>% filter(cohort %in% 2000:2013, species %in% speciesIn)
+```
+
 
 Run to here to start
 
@@ -123,7 +150,7 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'))
   theme_publication()
 ```
 
-```{r gam models}
+```{r gam models - only need to run for model selection}
 ####################################
 # gam models
 
@@ -286,17 +313,70 @@ modR <- bam(observedLength ~ river +
                s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered), 
              data = dataIn, method = "REML")
 
-AIC(mod,modC,modR,modC_R,modCR,modCR_c) %>% rownames_to_column() %>% arrange(AIC)
-save(mod,modC,modR,modC_R,modCR,modCR_c, file = paste0('./data/out/mods_',speciesIn,'.RData'))
-######
-
-
 ##########################################
+# add in salmon01 and cohortStrengthScaled
 
+system.time(
+modCR_S_c <- bam(observedLength ~ cohort * river + factor(salmon01) +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+system.time(
+modCR_c_cS <- bam(observedLength ~ cohort * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
 
+system.time(
+modCR_S_c_cS <- bam(observedLength ~ cohort * river + factor(salmon01) +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_S_c_cS)
 
+system.time(
+modCR_SR_c_cS <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cS)
 
+system.time(
+modCR_SR_c_cSR <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cSR)
+#plot(modCR_S_c_cS, scale = 0, pages=8)
+#plotGamVarBySpecies(var = 's(cohortStrengthScaled)')
 
+AIC(mod,modC,modR,modC_R,modCR, modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR) %>% rownames_to_column() %>% arrange(AIC)
+
+save(mod,modC,modR,modC_R,modCR,modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, file = paste0('./data/out/mods_',speciesIn,'.RData'))
 
 
 ```
@@ -305,19 +385,22 @@ save(mod,modC,modR,modC_R,modCR,modCR_c, file = paste0('./data/out/mods_',specie
 
 # Brook trout
 
-modBKT <- bam(observedLength ~ cohort * river + 
+modBKT <- bam(observedLength ~ cohort * river + factor(salmon01) +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
-               s(cohort, bs = 'cr', k = kIn), 
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bkt'), method = "REML")
 
 summary(modBKT)
 #plot(modBKT, pages = 8, scale = 0)
 
 predGridBKT <- expand.grid(cohortRiverOrdered = unique(modBKT$model$cohortRiverOrdered),
-                           ydayCumul = seq(250,1000, by = 30)) %>%
+                           ydayCumul = seq(250,1000, by = 30),
+                           salmon01 = c(0,1),
+                           cohortStrengthScaled = seq(-2,2, by = 0.1)) %>%
                     mutate(cohortOrdered = as.numeric(substr(cohortRiverOrdered,1,4)),
                            riverOrdered = substring(cohortRiverOrdered,6),
                            cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
@@ -332,19 +415,22 @@ predGrid2BKT <- bind_cols(predGridBKT, as.data.frame(predBKT)) %>% mutate(pred =
 #################################
 # Brown trout
 
-modBNT <- bam(observedLength ~ cohort * river + 
+modBNT <- bam(observedLength ~ cohort * river + factor(salmon01) +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
-               s(cohort, bs = 'cr', k = kIn), 
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bnt'), method = "REML")
 
 summary(modBNT)
 #plot(modBNT, pages = 8, scale = 0)
 
 predGridBNT <- expand.grid(cohortRiverOrdered = unique(modBNT$model$cohortRiverOrdered),
-                           ydayCumul = seq(250,1000, by = 30)) %>%
+                           ydayCumul = seq(250,1000, by = 30),
+                           salmon01 = c(0,1),
+                           cohortStrengthScaled = seq(-2,2, by = 0.1)) %>%
                     mutate(cohortOrdered = as.numeric(substr(cohortRiverOrdered,1,4)),
                            riverOrdered = substring(cohortRiverOrdered,6),
                            cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
@@ -372,11 +458,12 @@ save(modBKT,modBNT,predBKT,predBNT,predGrid2Both, file = paste0('./data/out/best
 
 ```{r graphs of best models}
 # load('./data/out/bestModsBKTBNT.RData')
+source('./functions/plotGams.R')
 
 # cohorts by river/species
-ggplot(predGrid2Both, aes(ydayCumul, pred, group = cohort, color = cohort)) +
-  geom_point() + 
-  geom_line() +
+ggplot(predGrid2Both %>% filter(cohortStrengthScaled == 0, salmon01 == 0), aes(ydayCumul, pred, group = cohort, color = cohort)) +
+  #geom_point() + 
+  geom_line(size = 1.1) +
   labs(y = 'Predicted body size (mm)',
        x = 'Days since age-0 Jan 1',
        color = 'Cohort') +
@@ -392,29 +479,14 @@ ggplot(predGrid2Both, aes(ydayCumul, pred, group = cohort, color = cohort)) +
 #  guide_legend(title = 'Cohort') +
   facet_grid(speciesGG ~ riverGG, scales = 'free_y') 
   
-# specific splines
-library(gratia)
-cohortBKT <- evaluate_smooth(modBKT, "s(cohort)") %>% mutate(species = 'bkt')
-cohortBNT <- evaluate_smooth(modBNT, "s(cohort)") %>% mutate(species = 'bnt')
-cohortBoth <- bind_rows(cohortBKT,cohortBNT) %>% mutate(upperCI = est + se * 1.96, lowerCI = est - se * 1.96)
+# specific splines by species
+plotCohort <- plotGamVarBySpecies(var = 's(cohort)', xAxisLab = 'Cohort')
 
-cohortBoth$speciesGG <- factor(cohortBoth$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
-
-ggplot(cohortBoth, aes(cohort, group = speciesGG)) + 
-  geom_ribbon(aes( ymin = lowerCI, ymax = upperCI), fill  = 'grey70') +
-  geom_line(aes(y = est, linetype = speciesGG), size = 1.5) +
-  labs(y = 'Effect size',
-       x = 'Cohort',
-       linetype = 'Species') +
-  theme_publication() +
-  theme(legend.position = "right", 
-        legend.direction = "vertical",
-        legend.title = element_text(face="plain")) 
 
 
 # main spline over ydayCumul
-plotBKT = plot.gam(modBKT, select = 1)
-plotBNT = plot.gam(modBNT, select = 1)
+plotBKT = plot.gam(modBKT, select = 1, scale = 0)
+plotBNT = plot.gam(modBNT, select = 1, scale = 0)
 
 plotBKTydayCumul <- data.frame(x = plotBKT[[1]]$x, y = plotBKT[[1]]$fit, se = plotBKT[[1]]$se) %>% mutate(species = 'bkt')
 plotBNTydayCumul <- data.frame(x = plotBNT[[1]]$x, y = plotBNT[[1]]$fit, se = plotBNT[[1]]$se) %>% mutate(species = 'bnt')
@@ -434,7 +506,10 @@ ggplot(plotBothydayCumul, aes(x, group = speciesGG)) +
         legend.direction = "vertical",
         legend.title = element_text(face="plain")) 
 
-# main 
+# cohort effects 
+
+
+
 
 
 ggplot(tmp2, aes(x,y)) + geom_line()
