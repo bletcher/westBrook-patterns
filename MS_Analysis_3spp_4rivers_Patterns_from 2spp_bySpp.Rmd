@@ -92,10 +92,24 @@ cohortStrength <- vB %>%
   distinct(tagIndex, species, metaPop01, cohort) %>% #ignoring 10 fish that were in both o'bear and WB
   group_by(species, metaPop01, cohort) %>%
   summarize(cohortStrength = n()) %>%
-  filter(!(cohort <2000 & species !='ats')) %>% # no trib data
+  filter(!(cohort < 2000 & species !='ats')) %>% # no trib data
   mutate(cohortStrengthScaled = scale(cohortStrength))
 
 vB <- left_join(vB, cohortStrength)
+
+cohortStrengthWide <- spread(cohortStrength, species, cohortStrengthScaled) %>%
+  rename(cohortStrengthScaledBKT = bkt,
+         cohortStrengthScaledBNT = bnt,
+         cohortStrengthScaledATS = ats
+         ) %>%
+  dplyr::select(-cohortStrength)
+
+vB <- left_join(vB, cohortStrengthWide)
+
+vB$cohortStrengthScaledBKT <- ifelse(is.na(vB$cohortStrengthScaledBKT), -2.5, vB$cohortStrengthScaledBKT)
+vB$cohortStrengthScaledBNT <- ifelse(is.na(vB$cohortStrengthScaledBNT), -2.5, vB$cohortStrengthScaledBNT)
+vB$cohortStrengthScaledATS <- ifelse(is.na(vB$cohortStrengthScaledATS), -2.5, vB$cohortStrengthScaledATS)
+
 
 ggplot(cohortStrength, aes(cohort, cohortStrengthScaled, group = species, linetype = species, shape = species)) +
   geom_point(size = 2) +
@@ -374,18 +388,85 @@ summary(modCR_SR_c_cSR)
 #plot(modCR_S_c_cS, scale = 0, pages=8)
 #plotGamVarBySpecies(var = 's(cohortStrengthScaled)')
 
-AIC(mod,modC,modR,modC_R,modCR, modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR) %>% rownames_to_column() %>% arrange(AIC)
+
+# effects of each species together - above is only conspecific
+system.time(
+modCR_SR_c_cSR3 <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(cohortStrengthScaledBNT, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledATS, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cSR3)
+#plot(modCR_SR_c_cSR3, scale = 0, pages=5)
+
+system.time(
+modCR_SR_c_cSR3a <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledBNT, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledATS, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cSR3a)
+#plot(modCR_SR_c_cSR3a, scale = 0, pages=5)
+
+system.time(
+modCR_SR_c_cSR3b <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn, by = metaPop01) +
+               s(cohortStrengthScaledBNT, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledATS, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cSR3b)
+#plot(modCR_SR_c_cSR3b, scale = 0, pages=5)
+
+
+AIC(mod,modC,modR,modC_R,modCR, modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, modCR_SR_c_cSR3, modCR_SR_c_cSR3a,modCR_SR_c_cSR3b) %>% rownames_to_column() %>% arrange(AIC)
 
 save(mod,modC,modR,modC_R,modCR,modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, file = paste0('./data/out/mods_',speciesIn,'.RData'))
 
+# BKT 
+
+
+# BNT
+#             rowname       df      AIC
+# 1  modCR_SR_c_cSR3a 89.52290 231873.4
+# 2  modCR_SR_c_cSR3b 89.54674 231873.6
+# 3     modCR_SR_c_cS 84.40505 231935.7
+# 4      modCR_S_c_cS 83.47382 231962.5
+# 5   modCR_SR_c_cSR3 88.15840 232100.8
+# 6        modCR_c_cS 80.92171 232142.0
+# 7    modCR_SR_c_cSR 80.89406 232201.5
+# 8         modCR_S_c 79.53048 232281.7
+# 9           modCR_c 77.80808 232420.2
+# 10            modCR 78.58400 233816.0
+# 11           modC_R 53.21199 234214.3
+# 12              mod 13.99759 238544.8
+# 13             modR 14.97078 243472.0
+# 14             modC 48.73277 431440.2
 
 ```
 
 ```{r best models for each species}
 
 # Brook trout
-
-modBKT <- bam(observedLength ~ cohort * river + factor(salmon01) +
+# using salmonid01 * river because we need diff effects per river - even though AIC is worse for this model 
+modBKT <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
@@ -415,13 +496,15 @@ predGrid2BKT <- bind_cols(predGridBKT, as.data.frame(predBKT)) %>% mutate(pred =
 #################################
 # Brown trout
 
-modBNT <- bam(observedLength ~ cohort * river + factor(salmon01) +
+modBNT <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn) + 
-               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn, by = metaPop01) +
+               s(cohortStrengthScaledBNT, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledATS, bs = 'cr', k = kIn), 
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bnt'), method = "REML")
 
 summary(modBNT)
@@ -480,7 +563,10 @@ ggplot(predGrid2Both %>% filter(cohortStrengthScaled == 0, salmon01 == 0), aes(y
   facet_grid(speciesGG ~ riverGG, scales = 'free_y') 
   
 # specific splines by species
-plotCohort <- plotGamVarBySpecies(var = 's(cohort)', xAxisLab = 'Cohort')
+(plotCohort <- plotGamVarBySpecies(var = 's(cohort)', xAxisLab = 'Cohort'))
+(plotCohortStrength <- plotGamVarBySpecies(var = 's(cohortStrengthScaled)', xAxisLab = 'Cohort Strength'))
+
+#
 
 
 
