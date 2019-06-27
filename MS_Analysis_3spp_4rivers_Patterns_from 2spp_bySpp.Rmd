@@ -11,6 +11,7 @@ Plots for the manuscript
 library(itsadug)
 library(arm)
 library(relaimpo)
+library(GGally)
 library(linkedModels)
 library(arrayhelpers)
 library(mgcv)
@@ -68,6 +69,10 @@ vB$riverFactor <- factor(vB$river, levels=c('west brook', 'wb jimmy', 'wb mitche
 #vB$riverOrdered <- riverOrdered exists
 
 # 2-way
+vB$speciesRiverFactor <- factor(paste(vB$speciesFactor,vB$riverFactor, sep = '_'))
+vB$cohortRiverFactor <- factor(paste(vB$cohortFactor,vB$riverFactor, sep = '_'))
+vB$seasonRiverFactor <- factor(paste(vB$season,vB$riverFactor, sep = '_'))
+
 vB$speciesRiverOrdered <- factor(paste(vB$speciesOrdered,vB$riverOrdered, sep = '_'), ordered = T)
 vB$speciesCohortOrdered <- factor(paste(vB$speciesOrdered,vB$cohortOrdered, sep = '_'), ordered = T)
 vB$cohortRiverOrdered <- factor(paste(vB$cohortOrdered,vB$riverOrdered, sep = '_'), ordered = T)
@@ -81,9 +86,27 @@ vB$tagIndexFactor <- factor(vB$tagIndex)
 #                         levels=c('west brook', 'wb jimmy', 'wb mitchell', 'wb obear'),
 #                         ordered = T)
 
-vB$salmon01 <- ifelse(vB$cohort <=2004, 1, 0)
+vB$salmon01 <- ifelse(vB$cohort <= 2004 & vB$river == 'west brook', 1, 0)
 
+vB$speciesGG <- factor(vB$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+vB$seasonGG <- factor(vB$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
 
+# scaling temperature and flow
+vB$meanTemperatureScaled <- as.numeric(scale(vB$meanTemperature))
+vB$meanFlowScaled <- as.numeric(scale(vB$meanFlow))
+vB$meanTemperatureFlowScaled <- vB$meanTemperatureScaled * vB$meanFlowScaled
+
+seasonalTF <- vB %>% group_by(season) %>%
+  summarize(meanTBySeason = mean(meanTemperature, na.rm = TRUE),
+            sdTBySeason = sd(meanTemperature, na.rm = TRUE),
+            meanFBySeason = mean(meanFlow, na.rm = TRUE),
+            sdFBySeason = sd(meanFlow, na.rm = TRUE))
+
+vB <- left_join(vB,seasonalTF) %>%
+  mutate(meanTemperatureScaledBySeason = (meanTemperature - meanTBySeason)/sdTBySeason, 
+         meanFlowScaledBySeason = (meanFlow - meanFBySeason)/sdFBySeason)
+
+vB$meanTemperatureFlowScaledBySeason <- vB$meanTemperatureScaledBySeason * vB$meanFlowScaledBySeason
 ```
 
 ```{r cohort strength}
@@ -111,7 +134,7 @@ vB$cohortStrengthScaledBNT <- ifelse(is.na(vB$cohortStrengthScaledBNT), -2.5, vB
 vB$cohortStrengthScaledATS <- ifelse(is.na(vB$cohortStrengthScaledATS), -2.5, vB$cohortStrengthScaledATS)
 
 
-ggplot(cohortStrength, aes(cohort, cohortStrengthScaled, group = species, linetype = species, shape = species)) +
+ggplot(cohortStrength, aes(cohort, cohortStrengthScaled, group = species, linetype = species, shape = species, color = species)) +
   geom_point(size = 2) +
   geom_line(size = 1.1, color = 'grey40') +
   labs(x = 'Cohort',
@@ -164,20 +187,962 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'))
   theme_publication()
 ```
 
-```{r gam models - only need to run for model selection}
-####################################
-# gam models
+```{r raw data histos}
 
-################################################################################
+ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt'), river == "west brook"), aes(observedLength)) +
+  geom_freqpoly(aes(color = species)) +
+  theme_publication() +
+  facet_grid(season ~ year)
 
-# base model
+# season 3
+ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt'), river == "west brook", season == 3), aes(observedLength)) +
+  geom_freqpoly(aes(color = speciesGG), binwidth = 6, size = 1.35) +
+  theme_publication() +
+  theme(strip.text.x = element_text(size = 8), 
+        strip.background = element_blank(),
+        legend.title = element_text("Species"),
+        legend.position = "right",
+        legend.direction = "vertical") + 
+  labs(color='Species') +
+  scale_x_continuous("Fork Length (mm)", limits = c(49,200)) +
+  scale_y_continuous("Count") +
+  #scale_color_manual(values = c("lightblue", "lightgreen")) +
+  scale_colour_brewer(palette = "Paired")+
+  facet_wrap(~ year)
 
-mod <- bam(observedLength ~ cohort * river + 
+ggsave('./figures/season3freqpoly.png', width = 11, height = 8, units='in')
+
+# 1 cohort
+ggplot(vB %>% filter(cohort == 2009, species %in% c('bkt', 'bnt'), river == "west brook"), aes(observedLength)) +
+  geom_freqpoly(aes(color = speciesGG), binwidth = 6, size = 1.35) +
+  theme_publication() +
+  theme(strip.text.x = element_text(size = 8), 
+        strip.background = element_blank(),
+        legend.title = element_text("Species"),
+        legend.position = "right",
+        legend.direction = "vertical") + 
+  labs(color='Species') +
+  scale_x_continuous("Fork Length (mm)", limits = c(49,200)) +
+  scale_y_continuous("Count") +
+  #scale_color_manual(values = c("lightblue", "lightgreen")) +
+  scale_colour_brewer(palette = "Paired")+
+  facet_grid(season ~ year)
+
+ggsave('./figures/cohort2009freqpoly.png', width = 11, height = 8, units='in')
+
+
+```
+
+```{r mean lengths: from MS_Analysis_3spp_WB.Rmd. For Grenada talk}
+
+# Has mean size changed over time?
+means <- 
+  cd %>% mutate( age = year - cohort ) %>%
+    filter( riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016 ) %>%
+    group_by(species,ageInSamples,year,season,age) %>%
+    summarize(meanLen = mean(observedLength,na.rm = TRUE),
+              sdLen = sd(observedLength,na.rm = TRUE),
+              meanGR = mean(grLength,na.rm = TRUE),
+              sdGR = sd(grLength,na.rm = TRUE)
+              )
+
+lenSlopes <- means %>%
+  group_by( species, ageInSamples, season, age ) %>%
+  nest()
+
+lengthModel <- function(df){
+  lm( meanLen ~ year, data = df )
+}
+
+grModel <- function(df){
+  lm( meanGR ~ year, data = df )
+}
+
+lenSlopes <- lenSlopes %>%
+  mutate( model = map(lenSlopes$data, lengthModel),
+          modelGR = map(lenSlopes$data, grModel))
+
+###################################
+######### len here, gr below ######
+lenSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(model, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig))
+
+
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+lenSlopesTidy$seasonGG <- factor(lenSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+lenSlopesTidy$speciesGG <- factor(lenSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot( means %>% filter(year >= 2000, species != 'ats'), aes(year,meanLen, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean body length (mm)" ) +
+
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age<2), 
+            aes(x=2000,y=225, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age<2), 
+            aes(x=2000,y=195, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age==2), 
+            aes(x=2011.8,y=104, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age==2), 
+            aes(x=2011.8,y=74, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+
+
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+      #  legend.position = "right",
+     #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age, scales='free')
+
+ggsave('./figures/meanSizes.png', width = 11, height = 11, units='in')
+
+# one season/year only
+ggplot( means %>% filter(year >= 2000, species != 'ats', ageInSamples == 8), aes(year,meanLen, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean body length (mm)" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+      #  legend.position = "right",
+     #   legend.direction = "vertical"
+                legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+ggsave('./figures/meanSizesAIS_1.png', width = 11, height = 8, units='in')
+
+# is a model with salmon presence absence better than a year model?
+means$ats01 <- ifelse(means$year <= 2005, 1, 0)
+
+modMeans1 = lm(meanLen ~ year * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans2 = lm(meanLen ~ year * factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans3 = lm(meanLen ~ factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans4 = lm(meanLen ~ factor(ats01)*year, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+AIC(modMeans1, modMeans2, modMeans3, modMeans4)
+
+# one season/year only
+ggplot( means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1), aes(year,meanLen, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(group = factor(ats01)), color = 'black', se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean body length (mm)" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+      #  legend.position = "right",
+     #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/meanSizesAIS_1_ats01.png', width = 11, height = 8, units='in')
+
+
+
+# mean increases 
+lenSlopesTidy %>%
+  filter(species != 'ats') %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+lenSlopesTidy %>%
+  group_by(species) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(lenSlopesTidy %>% filter(species != 'ats'), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(size = 5) +
+  geom_smooth(method='lm', se=FALSE, size = 1.5) +
+  scale_x_continuous(breaks = 1:10, labels = c('0 Fall','0 Winter','1 Spring','1 Summer','1 Fall','1 Winter','2 Spring','2 Summer','2 Fall','2 Winter')) +
+  labs( x = "Age Season", y = "Slope of mean body length over years" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 40, hjust = 1)) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) 
+
+ggsave(paste0('figures/meanLengthsOverAge.png'), width = 11, height = 10, units='in')
+
+# species diff in increases in length?
+sppEffect <- (lm(estimate ~ ageInSamples * (species), data = lenSlopesTidy))
+summary(sppEffect)
+anova(sppEffect)
+
+# mean diff in slopes btw bkt and bnt
+lenSlopesTidy %>%
+  filter(species != 'ats') %>%
+  group_by(species) %>%
+  summarise(means = mean(estimate))
+
+#####################################  
+#################################
+# growth rate
+grSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(modelGR, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate( sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate( sig = ifelse(p.value < 0.0001,"***",sig))
+
+##
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+grSlopesTidy$seasonGG <- factor(grSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+grSlopesTidy$speciesGG <- factor(grSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot( means %>% filter(year >= 2000, species != 'ats'), aes(year,meanGR, group= speciesGG)) +
+  geom_point( aes(color = speciesGG), size = 4) +
+  geom_smooth( aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs( x = "Year", y = "Mean growth rate (mm/d)" ) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age<2), 
+            aes(x=2000,y=0.68, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age<2), 
+            aes(x=2000,y=0.55, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+
+  geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age==2), 
+            aes(x=2011.5,y=0.64, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age==2), 
+            aes(x=2011.5,y=0.51, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+      #  legend.position = "right",
+     #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG~age)
+
+ggsave('./figures/meanGRs.png', width = 11, height = 11, units='in')
+
+# mean increases 
+grSlopesTidy %>%
+  filter(species != 'ats') %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+grSlopesTidy %>%
+  group_by(species) %>%
+  summarise( means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(grSlopesTidy %>% filter(species != 'ats'), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(size = 5) +
+  geom_smooth(method='lm', se=FALSE) +  
+  geom_hline(yintercept = 0) +
+  scale_x_continuous(breaks = 1:10, labels = c('0 Fall','0 Winter','1 Spring','1 Summer','1 Fall','1 Winter','2 Spring','2 Summer','2 Fall','2 Winter')) +
+  labs( x = "Age Season", y = "Slope of mean growth rate over years" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 40, hjust = 1)) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) 
+
+ggsave('./figures/meanGRsOverAge.png', width = 11, height = 11, units='in')
+
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bkt')))
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bnt')))
+
+# species diff in increases in gr?
+sppEffectGR <- (lm(estimate ~ ageInSamples * (species), data = grSlopesTidy))
+summary(sppEffectGR)
+anova(sppEffectGR)
+
+# mean diff in slopes btw bkt and bnt
+grSlopesTidy %>%
+  filter(species != 'ats') %>%
+  group_by(species) %>%
+  summarise(means = mean(estimate))
+
+
+
+
+```
+
+```{r size-dep imm or mort? For Spain talk}
+
+### for losses
+
+cd01 <-  cd %>%
+  filter(knownZ == 1) %>%
+  group_by(tagIndex) %>%
+  mutate(first = min(sampleNumber),
+         firstObs = sampleNumber == first,
+         last = max(sampleNumber),
+         lastObs = sampleNumber == last,
+         notLastObs = !lastObs,
+         nObs = n(),
+         age = year - cohort
+  ) %>%
+  ungroup()
+
+meansByAIS <- cd01 %>%
+  group_by(species, ageInSamples, cohort, river) %>%
+  summarise(meanLen = mean(observedLength, na.rm =T),
+            sdLen = sd(observedLength, na.rm = T),
+            n = n())
+cd01 <- left_join(cd01, meansByAIS) %>%
+  mutate(observedLengthStd = (observedLength - meanLen) / sdLen,
+         cohortStd = cohort - 2007)
+
+#cd %>% select(tagIndex,sampleNumber, firstObs,lastObs, knownZ, observedLength) %>% head(50) %>% as.data.frame()
+cd01Mod <- cd01 %>% filter(species %in% c('bkt', 'bnt'), river == 'west brook', ageInSamples %in% 1:10, cohort %in% 2000:2014)
+
+ggplot(cd01Mod, aes(observedLengthStd, notLastObs*1, color = factor(species), group = factor(species))) +
+  geom_point(alpha = 0.01) +
+  geom_smooth(method = "glm", 
+    method.args = list(family = "binomial"), 
+    se = FALSE) +
+ # scale_color_viridis_c() +
+  facet_wrap( ~ cohort, scales = 'free')
+
+#### by species and ageInSamples
+
+sensSlopes <- cd01Mod %>%
+  group_by( species, ageInSamples ) %>%
+  nest()
+
+survModel <- function(df){
+  glm(notLastObs*1 ~ observedLengthStd + cohortStd, family = 'binomial', data = df )
+}
+enterModel <- function(df){
+  glm(firstObs*1 ~ observedLengthStd + cohortStd, family = 'binomial', data = df )
+}
+
+sensSlopes <- sensSlopes %>%
+  mutate(modelSurv = map(sensSlopes$data, survModel),
+         modelEnter = map(sensSlopes$data, enterModel))
+
+sensSlopesTidy <- sensSlopes %>%
+  mutate(surv = map(modelSurv, broom::tidy),
+         enter = map(modelEnter, broom::tidy)) %>% 
+  unnest(surv, enter, .drop = TRUE) %>%
+  filter(term == 'cohortStd') %>% # cohort effect
+  rename(estimateSurv = estimate, estimateEnter = estimate1) %>%
+  select(species,ageInSamples,estimateSurv, estimateEnter) #%>%
+  #gather("type", "estimate", estimateSurv:estimateEnter)
+
+ggplot(sensSlopesTidy, aes(ageInSamples, estimate, color = type)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~species)
+
+```
+
+```{r dummy graphs for Spain talk}
+
+sizesForGraph <- data.frame(year = c(2000,2015), surv = c(100, 150))
+ggplot(sizesForGraph, aes(year,surv)) +
+  geom_line(size = 2) +
+  labs(x = 'Year', y = 'Mean body length (mm)') +
+  ylim(80,200) +
+  theme_publication(base_size = 36)
+ggsave('./figures/sizesDummy.png', width = 11, height = 11, units='in')
+
+
+survForGraph <- data.frame(size = c(-2,2), surv = c(0.25,0.75))
+ggplot(survForGraph, aes(size,surv)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of seen again') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pSurvivalDummy.png', width = 11, height = 11, units='in')
+
+firstForGraph <- data.frame(size = c(-2,2), surv = c(0.35,0.65))
+ggplot(firstForGraph, aes(size,surv)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of first observation') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pFirstDummy.png', width = 11, height = 11, units='in')
+
+
+sizesForGraph <- data.frame(year = c(2000,2015), surv = c(100, 150))
+ggplot(sizesForGraph, aes(year,surv)) +
+  geom_line(size = 3) +
+  labs(x = 'Year', y = 'Mean body length (mm)') +
+  ylim(80,200) +
+  theme_publication(base_size = 36)
+ggsave('./figures/sizesDummy.png', width = 11, height = 11, units='in')
+
+#### show interactions
+
+survForGraph <- data.frame(ind = c(1,1,2,2,3,3), size = c(-2,2), surv = c(0.52,0.55,0.51,0.24,0.54,0.82))
+ggplot(survForGraph, aes(size,surv, group = ind)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of seen again') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pSurvivalDummy3.png', width = 11, height = 11, units='in')
+
+firstForGraph <- data.frame(ind = c(1,1,2,2,3,3), size = c(-2,2), surv = c(0.42,0.45,0.41,0.14,0.44,0.72))
+ggplot(firstForGraph, aes(size,surv, group = ind)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of first observation') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pFirstDummy3.png', width = 11, height = 11, units='in')
+
+
+
+```
+
+```{r get betas from growth model for sensitivities}
+load("D:/projects/linkedModels/data/out/allBetas.RData") #loads df 'q'
+qFig1 <- q %>% filter(riverGG == 'WB', species %in% c('bkt','bnt'))
+qFig1$season <- as.numeric(as.character(qFig1$season))
+qFig1$isYOY <- as.numeric(as.character(qFig1$isYOY))
+qFig <- qFig1 %>%
+  mutate( varText = tolower(betaGG)) %>%
+  mutate( varText = ifelse(varText == 'temp*flow','temp:flow', varText)) %>%
+  mutate( varText = ifelse(varText == 'bnt*bkt','bkt:bnt', varText)) %>%
+  select(isYOY,season,species,median,varText)
+qFig$seasonGG <- factor(qFig$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+#get slopes of env variables
+
+load('D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
+flowSlopesTidy2 <- flowSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'flow')
+load('D:/projects/linkedModels/data/out/tempSlopesTidy.RData')
+tempSlopesTidy2 <- tempSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'temp')
+load('D:/projects/linkedModels/data/out/nSlopesTidy.RData')
+nSlopesTidy2 <- nSlopesTidy %>% select(estimate, season, species) %>% mutate(varText = species)
+nSlopesTidy2$seasonGG <- factor(nSlopesTidy2$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+nSlopesTidy2 <- nSlopesTidy2 %>% select(estimate,seasonGG,varText)
+
+allSlopesTidy <- bind_rows(nSlopesTidy2, tempSlopesTidy2, flowSlopesTidy2)
+
+allSlopesTidyWBetas <- left_join(qFig, allSlopesTidy, by = c('seasonGG', 'varText')) %>% mutate(sens = median * estimate)
+
+ggplot(allSlopesTidyWBetas%>%filter(!is.na(sens), varText != 'ats'), aes(seasonGG, sens, color = varText)) +
+  geom_point() +
+  facet_grid(species + isYOY ~ varText, scales = 'free')
+```
+
+
+```{r }
+############# 1st attempt at imm em
+mod1 <- glm(notLastObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+#mod2 <- glm(notLastObs*1 ~ observedLengthStd * factor(cohortStd) * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+mod3 <- glm(notLastObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+
+AIC(mod1,mod3)
+
+summary(mod1)
+anova(mod1, test="Chi")
+
+pred <- expand.grid(observedLengthStd = seq(-2,2, length.out = 50), cohortStd = unique(cd01Mod$cohortStd), species = c('bkt', 'bnt'), ageInSamples = unique(cd01Mod$ageInSamples))
+  
+pred$pred <- predict.glm(mod1, newdata = pred, type = 'response')
+
+u <- cd01Mod %>% distinct(age, season, ageInSamples) %>% arrange(ageInSamples) %>% filter(!(age==2 & ageInSamples == 6))
+pred <- left_join(pred, u)
+
+pred$seasonGG <- factor(pred$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+pred$cohort <- pred$cohortStd + 2007
+pred$speciesGG <- factor(pred$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(pred, aes(observedLengthStd, pred, color = (cohortStd), group = (cohortStd))) +
+  geom_point() +
+  scale_color_viridis_c() +
+  scale_y_continuous("Probability of survival") +
+  facet_grid(species ~ ageInSamples, scales = 'free')
+
+ggplot(pred %>% filter(cohortStd %in% 0, age < 3), aes(observedLengthStd, pred, color = speciesGG)) +
+  geom_point(size = 2) +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of seen again") +
+  theme_publication(base_size = 28) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal"
+        ) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/pSurvival.png', width = 11, height = 11, units='in')
+
+
+
+################################
+# gains - immigration, firstObs
+
+ggplot(cd01Mod, aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
+  geom_jitter(alpha = 0.1) +
+  geom_smooth(method = "glm", 
+    method.args = list(family = "binomial"), 
+    se = FALSE) +
+ # scale_color_viridis_c() +
+  xlim(c(-2.75,2.75)) +
+  facet_grid(ageInSamples ~ cohort)
+
+ggplot(cd01Mod%>%filter(ageInSamples == 3), aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
+  geom_jitter(alpha = 0.1) +
+  geom_smooth(method = "glm", 
+    method.args = list(family = "binomial"), 
+    se = FALSE) +
+ # scale_color_viridis_c() +
+  xlim(c(-2.75,2.75)) +
+  facet_wrap( ~ cohort)
+
+modi1 <- glm(firstObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi2 <- glm(firstObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi3 <- glm(firstObs*1 ~ observedLengthStd * species , family = 'binomial', data = cd01Mod)
+modi4 <- glm(firstObs*1 ~ observedLengthStd * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi5 <- glm(firstObs*1 ~ observedLengthStd, family = 'binomial', data = cd01Mod)
+
+AIC(modi1,modi2,modi3,modi4,modi5) %>% rownames_to_column() %>% arrange(AIC)
+
+summary(modi1)
+anova(modi1, test="Chi")
+###
+predi <- expand.grid(observedLengthStd = seq(-2,2, length.out = 50), cohortStd = unique(cd01Mod$cohortStd), species = c('bkt', 'bnt'), ageInSamples = unique(cd01Mod$ageInSamples))
+  
+predi$pred <- predict.glm(modi1, newdata = predi, type = 'response')
+
+u <- cd01Mod %>% distinct(age, season, ageInSamples) %>% arrange(ageInSamples) %>% filter(!(age==2 & ageInSamples == 6))
+predi <- left_join(predi, u)
+
+ggplot(predi, aes(observedLengthStd, pred, color = (cohortStd), group = (cohortStd))) +
+  geom_point() +
+  scale_color_viridis_c() +
+  scale_y_continuous("Probability of first observation") +
+  facet_grid(species ~ ageInSamples, scales = 'free')
+
+predi$seasonGG <- factor(predi$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+predi$cohort <- predi$cohortStd + 2007
+predi$speciesGG <- factor(predi$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(predi %>% filter(cohortStd %in% c(0), species == 'bkt', age < 3), aes(observedLengthStd, pred)) +
+  geom_point() +
+  scale_color_viridis_c() +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of first observation") +
+  theme_publication() +
+  facet_grid(seasonGG ~ age)
+
+ggplot(predi %>% filter(cohortStd %in% c(0), age < 3), aes(observedLengthStd, pred, color = speciesGG)) +
+  geom_point(size = 2) +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of first observation") +
+  theme_publication(base_size = 28) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal"
+        ) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/pFirstObs.png', width = 11, height = 11, units='in')
+```
+
+
+```{r gam models - find best lm, before fitting detailed gams - only need to run for model selection}
+# only including river, season, salmon01 becaseu we assume these have categorical effects
+
+mod0 <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) + 
                s(ydayCumul, bs = 'cr'), 
                data = dataIn, 
                method = "REML")
-summary(mod)
 
+mod1 <- bam(observedLength ~ riverFactor + factor(season) + factor(salmon01) + 
+               s(ydayCumul, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+
+mod2 <- bam(observedLength ~ riverFactor * factor(season) + 
+               s(ydayCumul, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+
+mod3 <- bam(observedLength ~ riverFactor + factor(season) + 
+               s(ydayCumul, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+
+mod4 <- bam(observedLength ~ riverFactor + 
+               s(ydayCumul, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+
+mod5 <- bam(observedLength ~ factor(season) + 
+               s(ydayCumul, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+
+mod6 <- bam(observedLength ~ riverFactor + factor(salmon01) +
+               s(ydayCumul, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+
+AIC(mod0,mod1,mod2,mod3,mod4,mod5,mod6) %>% rownames_to_column() %>% arrange(AIC)
+summary(mod0)
+plot(mod0)
+gam.check(mod0)
+
+```
+
+
+
+```{r gam structure given best model from above}
+
+# BKT, mod0 is best fixed effects model
+
+system.time(
+mod0_YDCcr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_YDCc_r <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) , 
+               data = dataIn, 
+               method = "REML")
+)
+
+AIC(mod0_YDCcr, mod0_YDCc_r) %>% rownames_to_column() %>% arrange(AIC)
+
+
+system.time(
+mod0_YDCcr_Cr_CSr_Tr_Fr_TFr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
+               s(cohort, bs = 'cr', k = kIn, by = riverFactor) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverFactor) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverFactor) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverFactor) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverFactor), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_YDCcr_Cr_CSr_Ts_Fs_TFs <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
+               s(cohort, bs = 'cr', k = kIn, by = riverFactor) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverFactor) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = season) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = season) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = season), 
+               data = dataIn, 
+               method = "REML")
+)
+ 
+system.time(
+mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
+               s(cohort, bs = 'cr', k = kIn, by = riverFactor) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverFactor) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor), 
+               data = dataIn, 
+               method = "REML")
+)
+
+AIC(mod0_YDCcr, mod0_YDCc_r, mod0_YDCcr_Cr_CSr_Tr_Fr_TFr, mod0_YDCcr_Cr_CSr_Ts_Fs_TFs,mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr) %>% rownames_to_column() %>% arrange(AIC)
+summary(mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr) 
+plot(mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr, pages = 8, shade = TRUE, scale = 0)
+
+system.time(
+mod0_YDCcr_C_CSr_Tsr_Fsr_TFsr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverFactor) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_YDCcr_Cr_CS_Tsr_Fsr_TFsr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
+               s(cohort, bs = 'cr', k = kIn, by = riverFactor) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_YDCcr_C_CS_Tsr_Fsr_TFsr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = seasonRiverFactor), 
+               data = dataIn, 
+               method = "REML")
+)
+
+AIC(mod0_YDCcr, mod0_YDCc_r, mod0_YDCcr_Cr_CSr_Tr_Fr_TFr, mod0_YDCcr_Cr_CSr_Ts_Fs_TFs,mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr,mod0_YDCcr_C_CSr_Tsr_Fsr_TFsr,mod0_YDCcr_Cr_CS_Tsr_Fsr_TFsr,mod0_YDCcr_C_CS_Tsr_Fsr_TFsr) %>% rownames_to_column() %>% arrange(AIC)
+summary(mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr) 
+plot(mod0_YDCcr_Cr_CSr_Tsr_Fsr_TFsr, pages = 8, shade = TRUE, scale = 0)
+
+
+
+
+
+
+
+
+
+system.time(
+mod0_YDCcr_C_CSr_Tr_Fr_TFr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered), 
+               data = dataIn, 
+               method = "REML")
+)
+
+
+
+
+
+
+
+system.time(
+mod0_CR_Cr_CS_Tr_Fr_TFr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_CR_Cr_CS_Tr_Fr_TFr <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_CR_Cr_CSr_T_F_TF <- bam(observedLength ~ riverFactor * factor(season) + factor(salmon01) +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+)
+
+# take out s()'s
+
+system.time(
+mod0_CR_Cr_CSr <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered),  # this is conspecific cS only
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_CR_Cr_Tr_Fr_TFr <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_CR_CSr_Tr_Fr_TFr <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_CSr_Tr_Fr_TFr <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered), 
+               data = dataIn, 
+               method = "REML")
+)
+########
+
+system.time(
+mod0_CR_Cr_CS_T_F_TF <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_CR_Cr_CS_Tr_F_TF <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn), 
+               data = dataIn, 
+               method = "REML")
+)
+
+system.time(
+mod0_C_Cr_CS_Tr_F_TF <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn), 
+               data = dataIn, 
+               method = "REML")
+)
+####
+system.time(
+mod0_C_Cr_CS_T_F_TF <- bam(observedLength ~ cohort * factor(river) * factor(salmon01) + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+              # s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanFlowScaledBySeason, bs = 'cr', k = kIn) +
+               s(meanTemperatureFlowScaledBySeason, bs = 'cr'), 
+               data = dataIn, 
+               method = "REML")
+)
+
+
+tmp <- 
+bam(observedLength ~ factor(river) * factor(season) + factor(salmon01) + 
+      #factor(river) *  + meanTemperatureScaledBySeason * meanFlowScaledBySeason * factor(season) + cohortStrengthScaled +              
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+              # s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+                s(cohort, bs = 'cr', k = kIn, by = riverOrdered) + 
+                s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+                s(meanTemperatureScaledBySeason, bs = 'cr', k = kIn, by = season) +
+                s(meanFlowScaledBySeason, bs = 'cr', k = kIn, by = season) +
+                s(meanTemperatureFlowScaledBySeason, bs = 'cr', k = kIn, by = season), 
+               data = dataIn, 
+               method = "REML")
+summary(tmp)
+plot(tmp, scale = 0, shade = TRUE)
+
+
+AIC(mod0, mod0_CR, mod0_CR_Cr_CSr_Tr_Fr_TFr,mod0_CR_C_CSr_Tr_Fr_TFr,mod0_CR_Cr_CS_Tr_Fr_TFr,mod0_CR_Cr_CSr_T_F_TF,
+    mod0_CR_Cr_CSr,mod0_CR_Cr_Tr_Fr_TFr,mod0_CR_CSr_Tr_Fr_TFr,mod0_CSr_Tr_Fr_TFr,mod0_CR_Cr_CS_T_F_TF,mod0_CR_Cr_CS_Tr_F_TF,mod0_C_Cr_CS_Tr_F_TF,mod0_C_Cr_CS_T_F_TF) %>% rownames_to_column() %>% arrange(AIC)
+
+summary(mod0_CR_Cr_CS_T_F_TF)
+gam.check(mod0_CR_Cr_CS_T_F_TF)
+plot(mod0_CR_Cr_CS_T_F_TF, scale = 0, pages=8)
+
+```
+
+
+```{r}
 predGrid <- expand.grid(cohort = unique(mod$model$cohort),
                         river = unique(mod$model$river),
                         ydayCumul = seq(250,1000, by = 30)) 
@@ -346,7 +1311,7 @@ modCR_c_cS <- bam(observedLength ~ cohort * river +
                s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn) + 
-               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn),  # this is conspecific cS only
              data = dataIn, method = "REML")
 )
 
@@ -354,10 +1319,10 @@ system.time(
 modCR_S_c_cS <- bam(observedLength ~ cohort * river + factor(salmon01) +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn) + 
-               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn),  # this is conspecific cS only
              data = dataIn, method = "REML")
 )
 summary(modCR_S_c_cS)
@@ -366,10 +1331,10 @@ system.time(
 modCR_SR_c_cS <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn) + 
-               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn),  # this is conspecific cS only
              data = dataIn, method = "REML")
 )
 summary(modCR_SR_c_cS)
@@ -381,13 +1346,24 @@ modCR_SR_c_cSR <- bam(observedLength ~ cohort * river + factor(salmon01) * river
                s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn) + 
-               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered), 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverOrdered),  # this is conspecific cS only
              data = dataIn, method = "REML")
 )
 summary(modCR_SR_c_cSR)
 #plot(modCR_S_c_cS, scale = 0, pages=8)
 #plotGamVarBySpecies(var = 's(cohortStrengthScaled)')
 
+system.time(
+modCR_SR_c_cSMP <- bam(observedLength ~ cohort * river + factor(salmon01) * river + metaPop01 +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = metaPop01),  # this is conspecific cS only
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cSMP)
 
 # effects of each species together - above is only conspecific
 system.time(
@@ -421,7 +1397,7 @@ summary(modCR_SR_c_cSR3a)
 #plot(modCR_SR_c_cSR3a, scale = 0, pages=5)
 
 system.time(
-modCR_SR_c_cSR3b <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+modCR_SR_c_cSR3b <- bam(observedLength ~ cohort * river + factor(salmon01) * river + metaPop01 +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
@@ -435,13 +1411,42 @@ modCR_SR_c_cSR3b <- bam(observedLength ~ cohort * river + factor(salmon01) * riv
 summary(modCR_SR_c_cSR3b)
 #plot(modCR_SR_c_cSR3b, scale = 0, pages=5)
 
+# take out salmon because the salmon01 is in cohortStrengthScaledATS
+system.time(
+modCR__c_cSR3b <- bam(observedLength ~ cohort * river + metaPop01 +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn, by = metaPop01) +
+               s(cohortStrengthScaledBNT, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledATS, bs = 'cr', k = kIn), 
+             data = dataIn, method = "REML")
+)
+summary(modCR_SR_c_cSR3b)
 
-AIC(mod,modC,modR,modC_R,modCR, modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, modCR_SR_c_cSR3, modCR_SR_c_cSR3a,modCR_SR_c_cSR3b) %>% rownames_to_column() %>% arrange(AIC)
 
-save(mod,modC,modR,modC_R,modCR,modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, file = paste0('./data/out/mods_',speciesIn,'.RData'))
+AIC(mod,modC,modR,modC_R,modCR, modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, modCR_SR_c_cSMP, modCR_SR_c_cSR3, modCR_SR_c_cSR3a,modCR_SR_c_cSR3b, modCR__c_cSR3b) %>% rownames_to_column() %>% arrange(AIC)
+
+save(mod,modC,modR,modC_R,modCR,modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, modCR_SR_c_cS, modCR_SR_c_cSR, modCR_SR_c_cSMP, modCR_SR_c_cSR3, modCR_SR_c_cSR3a,modCR_SR_c_cSR3b, file = paste0('./data/out/mods_',speciesIn,'.RData'))
 
 # BKT 
-
+#             rowname        df      AIC
+# 1     modCR_SR_c_cS 162.34756 414267.2
+# 2      modCR_S_c_cS 163.43154 414602.7
+# 3        modCR_c_cS 161.63691 414750.3
+# 4  modCR_SR_c_cSR3a  88.21646 415388.9
+# 5  modCR_SR_c_cSR3b 167.32968 416062.3
+# 6    modCR_SR_c_cSR 163.93920 416587.5
+# 7   modCR_SR_c_cSR3 173.36884 416611.4
+# 8         modCR_S_c 157.23995 418645.9
+# 9           modCR_c 158.50186 418665.1
+# 10            modCR 154.36186 419135.1
+# 11           modC_R  63.10879 421258.1
+# 12              mod  17.99204 427309.6
+# 13             modC  48.73277 431440.2
+# 14             modR  22.80483 432214.7
 
 # BNT
 #             rowname       df      AIC
@@ -462,26 +1467,169 @@ save(mod,modC,modR,modC_R,modCR,modCR_c, modCR_S_c, modCR_c_cS, modCR_S_c_cS, mo
 
 ```
 
+```{r models with flow and temp}
+
+################################################################################
+
+# base model
+modCR_SR_c_cS <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn),  # this is conspecific cS only
+             data = dataIn, method = "REML")
+
+
+modCR_SR_c_cS_T <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaled, bs = 'cr', k = kIn),
+             data = dataIn, method = "REML")
+
+modCR_SR_c_cS_F <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanFlowScaled, bs = 'cr', k = kIn),
+             data = dataIn, method = "REML")
+
+modCR_SR_c_cS_T_F <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaled, bs = 'cr', k = kIn) +
+               s(meanFlowScaled, bs = 'cr', k = kIn),
+             data = dataIn, method = "REML")
+
+modCR_SR_c_cS_TF <- bam(observedLength ~ cohort * riverOrdered + factor(salmon01) * riverOrdered +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaled, bs = 'cr', k = kIn) +
+               s(meanFlowScaled, bs = 'cr', k = kIn) +
+               s(meanTemperatureFlowScaled, bs = 'cr', k = kIn),
+             data = dataIn, method = "REML")
+
+
+modCR_SR_c_cS_TFs <- bam(observedLength ~ cohort * river + factor(salmon01) * river + meanTemperatureScaled * meanFlowScaled +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaled, bs = 'cr', k = kIn, by = factor(season)) +
+               s(meanFlowScaled, bs = 'cr', k = kIn, by = factor(season)) +
+               s(meanTemperatureFlowScaled, bs = 'cr', k = kIn, by = factor(season)),
+             data = dataIn, method = "REML")
+
+
+summary(modCR_SR_c_cS_TFs)
+plot(modCR_SR_c_cS_TFs, scale = 0, pages=8)
+
+modCR_SR_c_cS_TFs2 <- bam(observedLength ~ cohort * river + factor(salmon01) * river + meanTemperatureScaled * meanFlowScaled * factor(season) +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaled, bs = 'cr', k = kIn, by = factor(season)) +
+               s(meanFlowScaled, bs = 'cr', k = kIn, by = factor(season)) +
+               s(meanTemperatureFlowScaled, bs = 'cr', k = kIn, by = factor(season)),
+             data = dataIn, method = "REML")
+
+modCR_SR_c_cS_TFr <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
+               s(ydayCumul, bs = 'cr') +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
+               s(cohort, bs = 'cr', k = kIn) + 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn) +  # this is conspecific cS only
+               s(meanTemperatureScaled, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanFlowScaled, bs = 'cr', k = kIn, by = riverOrdered) +
+               s(meanTemperatureFlowScaled, bs = 'cr', k = kIn, by = riverOrdered),
+             data = dataIn, method = "REML")
+
+AIC(modCR_SR_c_cS,modCR_SR_c_cS_T, modCR_SR_c_cS_F, modCR_SR_c_cS_T_F, modCR_SR_c_cS_TF, modCR_SR_c_cS_TFs, modCR_SR_c_cS_TFs2, modCR_SR_c_cS_TFr) %>% rownames_to_column() %>% arrange(AIC)
+
+summary(modCR_SR_c_cS_TFr)
+plot(modCR_SR_c_cS_TFr, scale = 0, pages=8)
+
+
+predGridTF <- expand.grid(cohortRiverOrdered = unique(modBKT$model$cohortRiverOrdered),
+                           ydayCumul = seq(250,1000, by = 30),
+                           salmon01 = c(0,1),
+                           cohortStrengthScaledBKT = seq(-2,2, by = 0.1)) %>%
+                    mutate(cohortOrdered = as.numeric(substr(cohortRiverOrdered,1,4)),
+                           riverOrdered = substring(cohortRiverOrdered,6),
+                           cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
+                           cohortCentered = cohortOrdered - cohortOffset,
+                           cohort = cohortOrdered,
+                           river = riverOrdered)
+
+predTF <- predict(modCR_SR_c_cS_TFr, newdata = predGridTF)#, type = 'lpmatrix')
+
+predGrid2BKT <- bind_cols(predGridBKT, as.data.frame(predBKT)) %>% mutate(pred = predBKT, species = 'bkt')
+
+
+
+
+predGrid <- expand.grid(cohort = unique(mod$model$cohort),
+                        river = unique(mod$model$river),
+                        ydayCumul = seq(250,1000, by = 30)) 
+
+pred <- predict(mod, newdata = predGrid)#, type = 'lpmatrix')
+
+predGrid2 <- bind_cols(predGrid,as.data.frame(pred))
+
+ggplot(predGrid2, aes(ydayCumul, pred)) +
+  geom_point() + 
+  geom_line() +
+  facet_grid(river ~ cohort) +
+  ggtitle('mod')
+
+
+```
+
+
 ```{r best models for each species}
 
 # Brook trout
-# using salmonid01 * river because we need diff effects per river - even though AIC is worse for this model 
+
+#using salmon01 * river because we need diff effects per river - even though AIC is worse for this model
 modBKT <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
-               s(cohort, bs = 'cr', k = kIn) + 
-               s(cohortStrengthScaled, bs = 'cr', k = kIn), 
+               s(cohort, bs = 'cr', k = kIn) +
+               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn),
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bkt'), method = "REML")
 
 summary(modBKT)
+
 #plot(modBKT, pages = 8, scale = 0)
 
 predGridBKT <- expand.grid(cohortRiverOrdered = unique(modBKT$model$cohortRiverOrdered),
                            ydayCumul = seq(250,1000, by = 30),
                            salmon01 = c(0,1),
-                           cohortStrengthScaled = seq(-2,2, by = 0.1)) %>%
+                           cohortStrengthScaledBKT = seq(-2,2, by = 0.1)) %>%
                     mutate(cohortOrdered = as.numeric(substr(cohortRiverOrdered,1,4)),
                            riverOrdered = substring(cohortRiverOrdered,6),
                            cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
@@ -499,7 +1647,7 @@ predGrid2BKT <- bind_cols(predGridBKT, as.data.frame(predBKT)) %>% mutate(pred =
 modBNT <- bam(observedLength ~ cohort * river + factor(salmon01) * river +
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortOrdered) +
-               s(ydayCumul, bs = 'cr', k = kIn,  by = riverOrdered) +
+               s(ydayCumul, bs = 'cr', k = kIn, by = riverOrdered) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverOrdered) +
                s(cohort, bs = 'cr', k = kIn) + 
                s(cohortStrengthScaledBKT, bs = 'cr', k = kIn, by = metaPop01) +
@@ -513,7 +1661,10 @@ summary(modBNT)
 predGridBNT <- expand.grid(cohortRiverOrdered = unique(modBNT$model$cohortRiverOrdered),
                            ydayCumul = seq(250,1000, by = 30),
                            salmon01 = c(0,1),
-                           cohortStrengthScaled = seq(-2,2, by = 0.1)) %>%
+                           metaPop01 = c(0,1),
+                           cohortStrengthScaledBKT = seq(-2,2, by = 0.25),
+                           cohortStrengthScaledBNT = seq(-2,2, by = 0.25),
+                           cohortStrengthScaledATS = seq(-2,2, by = 0.25)) %>%
                     mutate(cohortOrdered = as.numeric(substr(cohortRiverOrdered,1,4)),
                            riverOrdered = substring(cohortRiverOrdered,6),
                            cohortRiverOrdered = paste(cohortOrdered, riverOrdered, sep = '_'),
@@ -528,7 +1679,7 @@ predGrid2BNT <- bind_cols(predGridBNT, as.data.frame(predBNT)) %>% mutate(pred =
 ##################
 # combine species' predictions
 
-predGrid2Both <- bind_rows(predGrid2BKT, predGrid2BNT) %>% select(-predBKT, -predBNT)
+predGrid2Both <- bind_rows(predGrid2BKT, predGrid2BNT) %>% dplyr:::select(-predBKT, -predBNT)
 
 predGrid2Both$riverGG <- factor(predGrid2Both$riverOrdered,
                          levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
@@ -544,8 +1695,13 @@ save(modBKT,modBNT,predBKT,predBNT,predGrid2Both, file = paste0('./data/out/best
 source('./functions/plotGams.R')
 
 # cohorts by river/species
-ggplot(predGrid2Both %>% filter(cohortStrengthScaled == 0, salmon01 == 0), aes(ydayCumul, pred, group = cohort, color = cohort)) +
+ggplot(predGrid2Both %>% 
+         filter(
+         (cohortStrengthScaledBKT == 0 & salmon01 == 0) | (cohortStrengthScaledBKT == 0 & cohortStrengthScaledBNT == 0 & cohortStrengthScaledATS == 0 & metaPop01 == 1 & salmon01 ==0)),
+#           cohortStrengthScaledBKT == 0, cohortStrengthScaledBNT == 0, cohortStrengthScaledATS == 0, metaPop01 == 1, salmon01 == 0),
+       aes(ydayCumul, pred, group = cohort, color = cohort)) +
   #geom_point() + 
+  geom_vline(xintercept = c(365,365*2), color = 'grey60', linetype = 2) +
   geom_line(size = 1.1) +
   labs(y = 'Predicted body size (mm)',
        x = 'Days since age-0 Jan 1',
@@ -554,20 +1710,22 @@ ggplot(predGrid2Both %>% filter(cohortStrengthScaled == 0, salmon01 == 0), aes(y
   theme_publication() +
   theme(legend.position = "right", 
         legend.direction = "vertical",
-        legend.title = element_text(face="plain")) +
+        legend.title = element_text(face = "plain")) +
   guides(color = guide_colorbar(barheight = 10,
                                 barwidth = 1.5,
                                 ticks = FALSE,
                                 nbin = 100)) +
 #  guide_legend(title = 'Cohort') +
   facet_grid(speciesGG ~ riverGG, scales = 'free_y') 
-  
+ 
+ggsave('./figures/predLengths.png', width = 11, height = 11, units='in')
+
 # specific splines by species
 (plotCohort <- plotGamVarBySpecies(var = 's(cohort)', xAxisLab = 'Cohort'))
 (plotCohortStrength <- plotGamVarBySpecies(var = 's(cohortStrengthScaled)', xAxisLab = 'Cohort Strength'))
 
 #
-
+plot.gam(modBKT, pages = 10)
 
 
 # main spline over ydayCumul
