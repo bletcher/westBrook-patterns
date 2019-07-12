@@ -1128,14 +1128,13 @@ modBKT <- bam(observedLength ~ riverFactor + factor(salmon01) +
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bkt'), method = "REML")
 
 summary(modBKT)
-
 plot(modBKT, pages = 8, scale = 0)
 
-predGridBKT <- expand.grid(riverFactor = unique(dataIn$riverFactor), 
-                        cohortFactor = unique(dataIn$cohort),
-                        ydayCumul = seq(250,1000, by = 30),
-                        salmon01 = c(0,1),
-                        cohortStrengthScaled = seq(-2.5,2.5, by = 0.25)) %>%
+predGridBKT <- expand.grid(riverFactor = unique(modBKT$model$riverFactor), 
+                           cohortFactor = unique(modBKT$model$cohort),
+                           ydayCumul = seq(250,1000, by = 30),
+                           salmon01 = c(0,1),
+                           cohortStrengthScaled = seq(-2.5,2.5, by = 0.25)) %>%
                     #left_join(., yDayAll) %>%
                     mutate(cohortRiverFactor = paste(cohortFactor, riverFactor, sep = '_'),
                            cohort = cohortFactor) 
@@ -1146,28 +1145,24 @@ predGrid2BKT <- bind_cols(predGridBKT, as.data.frame(predBKT)) %>% mutate(pred =
 
 #################################
 # Brown trout
-
+# using CSr model becasue delta AIC is not huge btw it and CS3r. Better to have same models for both species
 modBNT <- bam(observedLength ~ riverFactor + factor(salmon01) +              
                s(ydayCumul, bs = 'cr') +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortFactor) +
                s(ydayCumul, bs = 'cr', k = kIn, by = riverFactor) +
                s(ydayCumul, bs = 'cr', k = kIn, by = cohortRiverFactor) +
                s(cohort, bs = 'cr', k = kIn, by = riverFactor) + 
-               s(cohortStrengthScaledBKT, bs = 'cr', k = kIn, by = riverFactor) +
-               s(cohortStrengthScaledBNT, bs = 'cr', k = kIn, by = riverFactor) +
-               s(cohortStrengthScaledATS, bs = 'cr', k = kIn, by = riverFactor), 
+               s(cohortStrengthScaled, bs = 'cr', k = kIn, by = riverFactor), 
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bnt'), method = "REML")
 
 summary(modBNT)
 #plot(modBNT, pages = 8, scale = 0)
 
-predGridBNT <- expand.grid(riverFactor = unique(dataIn$riverFactor), 
-                           cohortFactor = unique(dataIn$cohort),
+predGridBNT <- expand.grid(riverFactor = unique(modBNT$model$riverFactor), 
+                           cohortFactor = unique(modBNT$model$cohort),
                            ydayCumul = seq(250,1000, by = 30),
                            salmon01 = c(0,1),
-                           cohortStrengthScaledBKT = seq(-2.5,2.5, by = 0.5),
-                           cohortStrengthScaledBNT = seq(-2.5,2.5, by = 0.5),
-                           cohortStrengthScaledATS = seq(-2.5,2.5, by = 0.5)) %>%
+                           cohortStrengthScaled = seq(-2.5,2.5, by = 0.25)) %>%
                     #left_join(., yDayAll) %>%
                     mutate(cohortRiverFactor = paste(cohortFactor, riverFactor, sep = '_'),
                            cohort = cohortFactor)
@@ -1196,7 +1191,7 @@ source('./functions/plotGams.R')
 
 # cohorts by river/species
 ggplot(predGrid2Both %>% 
-         filter(salmon01 ==0
+         filter(salmon01 ==0, cohortStrengthScaled == 0
 #         (cohortStrengthScaledBKT == 0 & salmon01 == 0) | (cohortStrengthScaledBKT == 0 & cohortStrengthScaledBNT == 0 & cohortStrengthScaledATS == 0 & metaPop01 == 1 & salmon01 ==0)
            ),
 #           cohortStrengthScaledBKT == 0, cohortStrengthScaledBNT == 0, cohortStrengthScaledATS == 0, metaPop01 == 1, salmon01 == 0),

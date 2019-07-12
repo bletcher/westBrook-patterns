@@ -1,14 +1,18 @@
 
 plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = modBKT, bnt = modBNT){
   require(gratia)
-  bkt <- evaluate_smooth(modBKT, var) %>% mutate(species = 'bkt')
-  bnt <- evaluate_smooth(modBNT, var) %>% mutate(species = 'bnt')
+  BKT <- evaluate_smooth(modBKT, var) %>% mutate(species = 'bkt')
+  BNT <- evaluate_smooth(modBNT, var) %>% mutate(species = 'bnt')
   both <- bind_rows(BKT,BNT) %>% mutate(upperCI = est + se * 1.96, lowerCI = est - se * 1.96)
   
   both$speciesGG <- factor(both$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
-  
+  both$riverFactor <- factor(both$riverFactor,
+                                  levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                                  labels = c("West Brook","Open Large","Open Small","Isolated Small"))  
+  xVar <- substr(var,3,nchar(var)-1)
+  byVar <- as.character(unique(both$by_variable))
   gg <- 
-    ggplot(both, aes(cohort, group = speciesGG)) + 
+    ggplot(both, aes(x = eval(as.name(xVar)), group = speciesGG)) + 
       geom_ribbon(aes( ymin = lowerCI, ymax = upperCI), fill  = 'grey70') +
       geom_line(aes(y = est, linetype = speciesGG), size = 1.5) +
       labs(y = 'Effect size',
@@ -17,7 +21,8 @@ plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = mo
       theme_publication() +
       theme(legend.position = "right", 
             legend.direction = "vertical",
-            legend.title = element_text(face="plain"))
+            legend.title = element_text(face="plain")) +
+      facet_wrap(~ eval(as.name(byVar)))
   gg
 } 
   # 
