@@ -170,13 +170,24 @@ ggplot(vB %>% filter(cohort %in% 2000:2013), aes(ydayCumul,observedLength, color
  # facet_grid(~species) +
   theme_publication()
 
-# by species, by cohort gridded
-# ggplot(vB %>% filter(cohort %in% 2000:2013), aes(ydayCumul,observedLength, group = species, color = (species))) +
-#   geom_point(size = 0.5, alpha = 0.1) +
-#  # geom_smooth(span = 0.1, size = 1.5, se = F) +
-#   geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
-#   facet_wrap( ~ cohort) +
-#   theme_publication()
+ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats')), aes(ydayCumul,observedLength)) +
+  geom_point(size = 0.5, alpha = 0.1) +
+ # geom_smooth(span = 0.1, size = 1.5, se = F) +
+ # geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
+  labs(y = 'Observed body size (mm)',
+       x = 'Days since age-0 Jan 1') +
+  facet_wrap(~ speciesGG) +
+  theme_publication()
+
+ggsave('./figures/rawBySpecies.png', width = 11, height = 8, units='in')
+
+# by species (bkt, bnt), by cohort, by river gridded
+ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats')), aes(ydayCumul,observedLength, group = species, color = (species))) +
+  geom_point(size = 0.5, alpha = 0.1) +
+ # geom_smooth(span = 0.1, size = 1.5, se = F) +
+  geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
+  facet_wrap( ~ cohort) +
+  theme_publication()
 
 # by species (bkt, bnt), by cohort, by river gridded
 ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats')), aes(ydayCumul,observedLength, group = species, color = (species))) +
@@ -185,7 +196,30 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'))
   geom_smooth(method='gam', alpha=0.1, formula=y~s(x, k = kValue), se = F) +
   facet_grid(riverOrdered ~ cohort) +
   theme_publication()
+
 ```
+
+```{r rivers where fish are fish}
+
+vB$riverGG <- factor(vB$riverFactor,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+
+ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'), !is.na(observedLength)),
+       aes(riverGG, fill = speciesGG)) +
+  geom_bar() +
+  labs(x = 'River', y = 'Number of observations', fill = 'Species') +
+  theme_publication() +
+  scale_fill_grey() +
+  theme(legend.position = "right", 
+    legend.direction = "vertical",
+    legend.title = element_text(face = "plain"))
+   
+ggsave('./figures/rawCountsBySpecies.png', width = 11, height = 8, units='in')      
+
+
+```
+
 
 ```{r raw data histos}
 
@@ -1128,11 +1162,11 @@ modBKT <- bam(observedLength ~ riverFactor + factor(salmon01) +
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bkt'), method = "REML")
 
 summary(modBKT)
-plot(modBKT, pages = 8, scale = 0)
+#plot(modBKT, pages = 8, scale = 0)
 
 predGridBKT <- expand.grid(riverFactor = unique(modBKT$model$riverFactor), 
                            cohortFactor = unique(modBKT$model$cohort),
-                           ydayCumul = seq(250,1000, by = 30),
+                           ydayCumul = seq(250,1000, by = 14),
                            salmon01 = c(0,1),
                            cohortStrengthScaled = seq(-2.5,2.5, by = 0.25)) %>%
                     #left_join(., yDayAll) %>%
@@ -1156,11 +1190,11 @@ modBNT <- bam(observedLength ~ riverFactor + factor(salmon01) +
              data = vB %>% filter(cohort %in% 2000:2013, species %in% 'bnt'), method = "REML")
 
 summary(modBNT)
-#plot(modBNT, pages = 8, scale = 0)
+#plot(modBNT,  scale = 0)
 
 predGridBNT <- expand.grid(riverFactor = unique(modBNT$model$riverFactor), 
                            cohortFactor = unique(modBNT$model$cohort),
-                           ydayCumul = seq(250,1000, by = 30),
+                           ydayCumul = seq(250,1000, by = 14),
                            salmon01 = c(0,1),
                            cohortStrengthScaled = seq(-2.5,2.5, by = 0.25)) %>%
                     #left_join(., yDayAll) %>%
@@ -1214,14 +1248,64 @@ ggplot(predGrid2Both %>%
 #  guide_legend(title = 'Cohort') +
   facet_grid(speciesGG ~ riverGG, scales = 'free_y') 
  
-ggsave('./figures/predLengths.png', width = 11, height = 11, units='in')
+ggsave('./figures/predLengths14.png', width = 11, height = 8, units='in')
 
-# specific splines by species
+# specific spline effects by species
 (plotCohort <- plotGamVarBySpecies(var = 's(cohort)', xAxisLab = 'Cohort'))
+ggsave('./figures/cohortEffect.png', width = 11, height = 8, units='in')
 (plotCohortStrength <- plotGamVarBySpecies(var = 's(cohortStrengthScaled)', xAxisLab = 'Cohort Strength'))
-
+ggsave('./figures/cohortStrengthEffect.png', width = 11, height = 8, units='in')
 #
 plot.gam(modBKT, pages = 10)
+
+# plot specific predictions
+
+# across rivers, by species
+ggplot(predGrid2Both %>% 
+         filter(salmon01 ==0, cohortStrengthScaled == 0, cohort == 2006, cohortStrengthScaled == 0),
+       aes(ydayCumul, pred, group = speciesGG, color = speciesGG)) +
+  #geom_point() + 
+  geom_vline(xintercept = c(365,365*2), color = 'grey60', linetype = 2) +
+  geom_line(size = 1.1) +
+  labs(y = 'Predicted body size (mm)',
+       x = 'Days since age-0 Jan 1',
+       color = 'Cohort') +
+#  scale_color_viridis_c() +
+  theme_publication() +
+  theme(legend.position = "right", 
+        legend.direction = "vertical",
+        legend.title = element_text(face = "plain")) +
+  facet_wrap(~ riverGG) 
+ 
+ggsave('./figures/ydayCumulAcrossRiverBySpp.png', width = 11, height = 8, units='in')
+
+# across species, by rivers
+ggplot(predGrid2Both %>% 
+         filter(salmon01 == 0, cohortStrengthScaled == 0, cohort == 2006, cohortStrengthScaled == 0),
+       aes(ydayCumul, pred, group = riverGG, color = riverGG)) +
+  #geom_point() + 
+  geom_vline(xintercept = c(365,365*2), color = 'grey60', linetype = 2) +
+  geom_line(size = 1.1) +
+  labs(y = 'Predicted body size (mm)',
+       x = 'Days since age-0 Jan 1',
+       color = 'River') +
+  #scale_color_viridis_c() +
+  theme_publication() +
+  theme(legend.position = "right", 
+        legend.direction = "vertical",
+        legend.title = element_text(face = "plain")) +
+  facet_grid(~ speciesGG) 
+
+ggsave('./figures/ydayCumulAcrossSppByRiver.png', width = 11, height = 8, units='in')
+
+
+
+
+
+
+
+
+
 
 
 # main spline over ydayCumul
