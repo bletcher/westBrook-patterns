@@ -168,6 +168,12 @@ ggplot(cohortStrength %>% filter(cohort > 1999), aes(cohort, cohortStrengthScale
   
 ggsave('./figures/cohortStrengthByMetapop.png', width = 11, height = 8, units='in')
 
+
+ggplot(cohortStrengthWide %>% filter(cohort >= 2002), aes(cohortStrengthScaledBKT, cohortStrengthScaledBNT, color=factor(cohort))) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE) 
+
+
 ```
 
 ```{r dataIn}
@@ -649,7 +655,7 @@ ggplot(plotByRiver, aes(x)) +
   geom_ribbon(aes(ymin = lowerCI, ymax = upperCI, fill = speciesGG), alpha = 0.5, show.legend = FALSE) +
   scale_color_manual(values = c('grey30', 'grey70')) +
   scale_fill_manual(values = c('grey30', 'grey70')) +
-  labs(y = 'Predicted body size (mm)',
+  labs(y = 'Effect on body size (mm)',
        x = 'Days since age-0 Jan 1',
        color = 'Species') +
   theme_publication() +
