@@ -1,8 +1,16 @@
 
 plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = modBKT, bnt = modBNT){
   require(gratia)
+  
   BKT <- evaluate_smooth(modBKT, var) %>% mutate(species = 'bkt')
+  if(var == 's(cohort)'){
+    BKT <- BKT %>% filter(!(cohort < 2002 & riverFactor %in% c('wb jimmy','wb mitchell','wb obear')))
+  } 
   BNT <- evaluate_smooth(modBNT, var) %>% mutate(species = 'bnt')
+  if(var == 's(cohort)'){
+    BNT <- BNT %>% filter(!(cohort < 2002 & riverFactor %in% c('wb jimmy','wb mitchell','wb obear')))
+  }     
+  
   both <- bind_rows(BKT,BNT) %>% mutate(upperCI = est + se * 1.96, lowerCI = est - se * 1.96)
   
   both$speciesGG <- factor(both$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
@@ -11,6 +19,9 @@ plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = mo
                                   labels = c("West Brook","Open Large","Open Small","Isolated Small"))  
   xVar <- substr(var,3,nchar(var)-1)
   byVar <- as.character(unique(both$by_variable))
+  
+  if(var == 's(cohortStrengthScaledBNT2p5)') both <- filter(both, riverFactor %in% c("West Brook","Open Large"))
+  
   gg <- 
     ggplot(both, aes(x = eval(as.name(xVar)), group = speciesGG)) + 
       geom_ribbon(aes( ymin = lowerCI, ymax = upperCI), fill  = 'grey70') +
@@ -25,6 +36,8 @@ plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = mo
       facet_wrap(~ eval(as.name(byVar)))
   gg
 } 
+
+
   # 
   # # main spline over ydayCumul
   # plotBKT = plot.gam(modBKT, select = 1, scale = 0)
