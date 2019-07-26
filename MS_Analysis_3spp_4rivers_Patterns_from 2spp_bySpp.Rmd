@@ -154,25 +154,38 @@ vB$cohortStrength01ATS <- ifelse(is.na(vB$cohortStrengthScaledATS), 0, 1)
 cohortStrength$speciesGG <- factor(cohortStrength$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"))
 
 ggplot(cohortStrength %>% filter(cohort > 1999), aes(cohort, cohortStrengthScaled, group = speciesGG, shape = speciesGG, color = speciesGG)) +
-  geom_point(size = 2) +
+  geom_point(size = 3) +
   geom_line(size = 1.2) +
   labs(x = 'Cohort',
        y = 'Cohort strength',
        shape = 'Species', color='Species') +
-  theme_publication() +
- # scale_fill_grey() +
-  theme(legend.position = "right", 
-    legend.direction = "vertical",
-    legend.title = element_text(face = "plain")) +
+  theme_publication(base_size = 20) +
+  scale_color_grey() +
+  theme(legend.position = "none",
+        #legend.position=c(0.8, 0.8),
+    #legend.direction = "vertical",
+    #legend.title = element_text(face = "plain"),
+    strip.background = element_blank(),
+    strip.text.y = element_blank()) +
   facet_grid(metaPop01 ~ .)
-  
+
+
 ggsave('./figures/cohortStrengthByMetapop.png', width = 11, height = 8, units='in')
 
 
-ggplot(cohortStrengthWide %>% filter(cohort >= 2002), aes(cohortStrengthScaledBKT, cohortStrengthScaledBNT, color=factor(cohort))) +
-  geom_point() +
-  geom_smooth(method = 'lm', se = FALSE) 
+ggplot(cohortStrengthWide %>% filter(cohort >= 2002, metaPop01 == 1), aes(cohortStrengthScaledBKT, cohortStrengthScaledBNT)) +
+  geom_point(size = 4) +
+  geom_smooth(method = 'lm', se = FALSE, color = 'grey30') +
+  theme_publication(base_size = 24) +
+  labs(x = 'Brook Trout cohort strength',
+       y = 'Brown Trout cohort strength') +
+  theme(legend.position = "none")
 
+ggsave('./figures/cohortStrengthBKT_BNT.png', width = 11, height = 8, units='in')
+
+CS_bkt_bnt <- lm(cohortStrengthScaledBNT ~ cohortStrengthScaledBKT, data = cohortStrengthWide %>% filter(cohort >= 2002, metaPop01 == 1))
+
+summary(CS_bkt_bnt)
 
 ```
 
@@ -210,7 +223,7 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'))
   labs(y = 'Observed body size (mm)',
        x = 'Days since age-0 Jan 1') +
   facet_wrap(~ speciesGG) +
-  theme_publication()
+  theme_publication(base_size = 20)
 
 ggsave('./figures/rawBySpecies.png', width = 11, height = 8, units='in')
 
@@ -242,11 +255,12 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'),
        aes(riverGG, fill = speciesGG)) +
   geom_bar() +
   labs(x = 'River', y = 'Number of observations', fill = 'Species') +
-  theme_publication() +
+  theme_publication(base_size = 24) +
   scale_fill_grey() +
-  theme(legend.position = "right", 
+  theme(#legend.position = "right", 
     legend.direction = "vertical",
-    legend.title = element_text(face = "plain"))
+    legend.title = element_text(face = "plain"),
+    legend.position=c(0.8, 0.8))
    
 ggsave('./figures/rawCountsBySpecies.png', width = 11, height = 8, units='in')      
 
@@ -529,7 +543,7 @@ ggplot(predGrid2Both %>%
        x = 'Days since age-0 Jan 1',
        color = 'Cohort') +
   scale_color_viridis_c(breaks = c(2000,2004,2008,2012), labels = c(2000,2004,2008,2012)) +
-  theme_publication() +
+  theme_publication(base_size = 20) +
   theme(legend.position = "right", 
         legend.direction = "vertical",
         legend.title = element_text(face = "plain")) +
@@ -544,13 +558,13 @@ ggsave('./figures/predLengths14.png', width = 11, height = 8, units='in')
 
 # specific spline effects by species
 (plotCohort <- plotGamVarBySpecies(var = 's(cohort)', xAxisLab = 'Cohort'))
-ggsave('./figures/cohortEffect.png', width = 11, height = 8, units='in')
+ggsave('./figures/cohortEffect.png', width = 8, height = 8, units='in')
 
 (plotCohortStrength <- plotGamVarBySpecies(var = 's(cohortStrengthScaledBKT)', xAxisLab = 'Brook Trout cohort Strength'))
-ggsave('./figures/cohortStrengthEffectBKT.png', width = 11, height = 8, units='in')
+ggsave('./figures/cohortStrengthEffectBKT.png', width = 8, height = 8, units='in')
 
 (plotCohortStrengthScaledBNT2p5 <- plotGamVarBySpecies(var = 's(cohortStrengthScaledBNT2p5)', xAxisLab = 'Brown Trout cohort Strength'))
-ggsave('./figures/cohortStrengthEffectBNT.png', width = 11, height = 8, units='in')
+ggsave('./figures/cohortStrengthEffectBNT.png', width = 8, height = 4.75, units='in')
 
 #
 #plot.gam(modBKT, pages = 10)
@@ -559,22 +573,23 @@ ggsave('./figures/cohortStrengthEffectBNT.png', width = 11, height = 8, units='i
 
 # across rivers, by species
 ggplot(predGrid2Both %>% 
-         filter(salmon01 == 0, cohortStrengthScaledBKT == 0, cohort == 2006, cohortStrengthScaledBNT2p5 == 0),
-       aes(ydayCumul, pred, group = speciesGG, color = speciesGG)) +
+         filter(salmon01 == 0, cohortStrengthScaledBKT == 0, cohort == 2006, cohortStrengthScaledBNT2p5 == 0, riverGG %in% c("West Brook", "Open Large")),
+       aes(ydayCumul, pred, group = speciesGG)) +
   #geom_point() + 
   geom_vline(xintercept = c(365,365*2), color = 'grey60', linetype = 2) +
-  geom_line(size = 1.1) +
+  geom_line(aes(linetype = speciesGG), size = 1.1) +
   labs(y = 'Predicted body size (mm)',
        x = 'Days since age-0 Jan 1',
        color = 'Cohort') +
 #  scale_color_viridis_c() +
-  theme_publication() +
-  theme(legend.position = "right", 
+  theme_publication(base_size = 20) +
+  #scale_color_grey() +
+  theme(legend.position = "none", 
         legend.direction = "vertical",
         legend.title = element_text(face = "plain")) +
   facet_wrap(~ riverGG) 
  
-ggsave('./figures/ydayCumulAcrossRiverBySpp.png', width = 11, height = 8, units='in')
+ggsave('./figures/ydayCumulAcrossRiverBySpp.png', width = 8, height = 4.75, units='in')
 
 # across species, by rivers
 ggplot(predGrid2Both %>% 
@@ -587,13 +602,15 @@ ggplot(predGrid2Both %>%
        x = 'Days since age-0 Jan 1',
        color = 'River') +
   #scale_color_viridis_c() +
-  theme_publication() +
-  theme(legend.position = "right", 
+  theme_publication(base_size = 20) +
+  theme(legend.position = c(0.125, 0.8), 
         legend.direction = "vertical",
         legend.title = element_text(face = "plain")) +
-  facet_grid(rows = vars(speciesGG)) 
+  theme(legend.text=element_text(size=12),
+        legend.title=element_text(size=12)) +
+  facet_grid(cols = vars(speciesGG)) 
 
-ggsave('./figures/ydayCumulAcrossSppByRiver.png', width = 8, height = 8, units='in')
+ggsave('./figures/ydayCumulAcrossSppByRiver.png', width = 8, height = 4.75, units='in')
 
 
 # main spline over ydayCumul

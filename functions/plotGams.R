@@ -26,11 +26,11 @@ plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = mo
     ggplot(both, aes(x = eval(as.name(xVar)), group = speciesGG)) + 
       geom_ribbon(aes( ymin = lowerCI, ymax = upperCI), fill  = 'grey70') +
       geom_line(aes(y = est, linetype = speciesGG), size = 1.5) +
-      labs(y = 'Effect size',
+      labs(y = 'Effect size (mm)',
            x = xAxisLab,
            linetype = 'Species') +
-      theme_publication() +
-      theme(legend.position = "right", 
+      theme_publication(base_size = 20) +
+      theme(legend.position = "none", 
             legend.direction = "vertical",
             legend.title = element_text(face="plain")) +
       facet_wrap(~ eval(as.name(byVar)))
