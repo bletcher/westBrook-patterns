@@ -1,7 +1,9 @@
 ---
 title: "Body size patterns"
-output: html_notebook
-editor_options: 
+output:
+  html_document:
+    df_print: paged
+editor_options:
   chunk_output_type: console
 ---
 
@@ -9,10 +11,11 @@ Plots for the manuscript
 
 ```{r Load data, message=FALSE}
 library(itsadug)
+library(gratia)
 library(arm)
 library(relaimpo)
 library(GGally)
-library(linkedModels)
+# library(linkedModels)
 library(arrayhelpers)
 library(mgcv)
 library(tidyverse)
@@ -36,11 +39,45 @@ cd <- cd %>% mutate(observedWeight = ifelse(observedWeight == -9999.9, NA, obser
                     lagObservedWeight = ifelse(lagObservedWeight == -9999.9, NA, lagObservedWeight))
 ```
 
+```{r theme_publication}
+
+theme_publication <- function(base_size=14, base_family="") {
+  library(grid)
+  library(ggthemes)
+  (theme_foundation(base_size=base_size, base_family=base_family)
+    + theme(plot.title = element_text(face = "bold",
+                                      size = rel(1.2), hjust = 0.5),
+            text = element_text(),
+            panel.background = element_rect(colour = NA),
+            plot.background = element_rect(colour = NA),
+            axis.title = element_text(face = "bold",size = rel(1)),
+            axis.title.y = element_text(angle=90,vjust =2),
+            axis.title.x = element_text(vjust = -0.2),
+            axis.text = element_text(),
+            axis.line = element_line(colour="black"),
+            axis.ticks = element_line(),
+            panel.grid.major = element_line(colour="#f0f0f0"),
+            panel.grid.minor = element_blank(),
+            legend.key = element_rect(colour = NA),
+            legend.position = "bottom",
+            legend.direction = "horizontal",
+            legend.key.size= unit(0.2, "cm"),
+            #    legend.margin = unit(0, "cm"),
+            legend.title = element_text(face="italic"),
+            plot.margin=unit(c(10,5,5,5),"mm"),
+            strip.background=element_rect(colour="#f0f0f0",fill="#f0f0f0"),
+            strip.text = element_text(face="bold"),
+            panel.border = element_rect(colour = "black")
+    ))
+
+}
+```
+
 
 ```{r gams for body size - data prep}
-speciesIn <- 'bnt'
+speciesIn <- 'bkt'
 depVarIn <- 'observedLength'
-kIn <- 4 # # of knots for the speces and river smooths
+kIn <- 4 # # of knots for the species and river smooths
 
 
 vB <- 
@@ -112,7 +149,25 @@ vB <- left_join(vB,seasonalTF) %>%
 
 vB$meanTemperatureFlowScaledBySeason <- vB$meanTemperatureScaledBySeason * vB$meanFlowScaledBySeason
 
+########################################
+# tags that may need cohort fixes
 
+#           tag
+# 1  00088cc1c3
+# 2  00088cc5c8
+# 3  00088d0a10
+# 4  00088d1a28
+# 5  00088d20f5
+# 6  00088d215f
+# 7  00088d23b4
+# 8  0009f6ecc2
+# 9  0009f6edf1
+# 10 0009f6ee11
+# 11 0009f6f33c
+# 12 0009f6f404
+# 13 1bf20e52f0
+# 14 1bf20ebfa7
+########################################
 ```
 
 ```{r cohort strength}
@@ -220,12 +275,36 @@ summary(CS_metaPopBKT)
 ```{r dataIn}
 write.csv(vB, file = './data/out/vB.csv')
 
+# temporary fix - added 9/18/19, use this just to remake AIC1... fig
+#vB[vB$tag == '0009f6f33c',]$cohort <- 2014  
+#vB[vB$tag == '0009f6f404',]$cohort <- 2014
+
 dataIn <- vB %>% filter(cohort %in% 2000:2013, species %in% speciesIn) %>%
   filter(!(cohort < 2002 & riverFactor %in% c('wb jimmy','wb mitchell','wb obear')))
 ```
 
 
 Run to here to start
+
+```{r raw data tables}
+
+# get proportion of fish tagged for the first time as age0
+dataAllSpp = vB %>% filter(cohort %in% 2000:2013, enc == 1) %>%
+  filter(!(cohort < 2002 & riverFactor %in% c('wb jimmy','wb mitchell','wb obear'))) 
+
+AIS <- dataAllSpp %>%
+  group_by(tag) %>%
+  summarise(minAIS = min(ageInSamples))
+  
+table(AIS$minAIS)/nrow(AIS)
+
+# counts by season, year, spp
+counts <- dataAllSpp %>%
+  group_by(season, year, species) %>%
+  summarize(n = n())
+    
+```
+
 
 ```{r raw data graphs}
 # number of knots from gam 
@@ -377,7 +456,7 @@ ggplot(vB %>% filter(cohort %in% 2000:2013,  species == 'bkt'), aes(observedLeng
   facet_grid(riverGG ~ ageInSamples, scales = 'free')
 ```
 
-```{r length ageInSamples = 1}
+```{r length ageInSamples equals one}
 
 ggplot(vB %>% filter(cohort %in% 2000:2013,  species == 'bnt', ageInSamples == 1), aes(yday,observedLength, color = factor(cohort))) + geom_point() + facet_grid(cohort~river)
 
@@ -399,7 +478,6 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt','bnt'), ageInSa
   facet_grid(speciesGG ~ riverGG)
 
 ggsave('./figures/AIS1_freqpoly.png', width = 11, height = 8, units='in')
-
 
 # length models for ageInSamples = 1 to look at variation within and among years/species/rivers
 lenModBKT1 <- lm(observedLength ~  factor(cohort) * factor(riverGG), data = vB %>% filter(cohort %in% 2000:2013, species == 'bkt', ageInSamples == 1))
@@ -433,6 +511,28 @@ ggplot(meanCVLen, aes(meanL, sdL, color = factor(cohort))) +
   geom_point() +
   facet_wrap(~riverGG)
 
+################################################
+# compare mean lengths between trout
+meansWide <- meanCVLen %>%
+  select(-sdL) %>%
+  pivot_wider(names_from = species, values_from = meanL) %>%
+  filter(riverGG %in% c('West Brook', 'Open Large'))
+
+ggplot(meansWide, aes(bkt, bnt)) +
+  geom_point() +
+  theme_publication() +
+  scale_x_continuous('Brook Trout mean length (mm)') +
+  scale_y_continuous('Brown Trout mean length (mm)', limits = c(60,90)) +
+  geom_smooth(method = 'lm', color = 'black') +
+  facet_wrap(~riverGG)
+
+ggsave('./figures/AIS1_MeanLengthBKT_BNT.png', width = 11, height = 6, units='in')
+
+#summary(lm(bnt ~ bkt, data = filter(meansWide, riverGG == 'West Brook')))
+#summary(lm(bnt ~ bkt, data = filter(meansWide, riverGG == 'Open Large', bnt < 90)))
+corr(meansWide %>% ungroup() %>% filter(riverGG == 'West Brook') %>% select(bkt, bnt) %>% drop_na())
+corr(meansWide %>% ungroup() %>% filter(riverGG == 'Open Large', bnt < 90) %>% select(bkt, bnt) %>% drop_na())
+#########################
 #BNT
 lenModBNT1 <- lm(observedLength ~  factor(cohort) * factor(riverGG), data = vB %>% filter(cohort %in% 2000:2013, species == 'bnt', ageInSamples == 1))
 lenModBNT2 <- lm(observedLength ~  factor(cohort) + riverGG, data = vB %>% filter(cohort %in% 2000:2013,  species == 'bnt', ageInSamples == 1))
@@ -466,6 +566,56 @@ calc.relimp(lenMod3)
 # speciesGG       0.000531708
 ```
 
+```{r corr btw bkt/bnt mean lengths all samples}
+meanCVLenAll <- 
+#vB %>% filter(cohort %in% 2000:2013) %>% # leave out 2013 cohort - some bad cohort assignments I've asked Matt to check 8/4/2020
+  vB %>% filter(cohort %in% 2000:2012) %>%
+  group_by(species, riverGG, cohort, ageInSamples) %>%
+  summarize(meanL = mean(observedLength),
+            sdL = sd(observedLength))
+
+################################################
+# compare mean lengths between trout
+meansWideAll <- meanCVLenAll %>%
+  select(-sdL) %>%
+  pivot_wider(names_from = species, values_from = meanL) %>%
+  filter(riverGG %in% c('West Brook', 'Open Large'))
+
+# get correlations
+corrMod <- function(df) {
+  df <- df %>% select(bkt, bnt) %>% drop_na()
+  corr(df)
+}
+
+byAIS_River <- meansWideAll %>%
+  group_by(riverGG, ageInSamples) %>%
+  nest()
+
+byAIS_River <- byAIS_River %>%
+  mutate(corr = map(data, corrMod)) %>%
+  unnest() %>%
+  distinct(riverGG, ageInSamples, corr)
+
+meansWideAll$AIS_labels <- factor(meansWideAll$ageInSamples, labels = c('Autumn, 0', 'Winter, 0', 'Spring, 1', 'Summer, 1', 'Autumn, 1', 'Winter, 1', 'Spring, 2', 'Summer, 2', 'Autumn, 2'))
+
+byAIS_River$AIS_labels <- factor(byAIS_River$ageInSamples, labels = c('Autumn, 0', 'Winter, 0', 'Spring, 1', 'Summer, 1', 'Autumn, 1', 'Winter, 1', 'Spring, 2', 'Summer, 2', 'Autumn, 2'))
+
+ggplot(meansWideAll, aes(bkt, bnt)) +
+  geom_point() +
+  theme_publication() +
+  scale_x_continuous('Brook Trout mean length (mm)') +
+  scale_y_continuous('Brown Trout mean length (mm)') +
+  geom_smooth(method = 'lm', se = FALSE, color = 'black') +
+  geom_abline(intercept = 0, slope = 1, color = 'grey') +
+  geom_text(aes(label = round(corr, digits = 2), x = 95, y = 235), size = 3.5, data = byAIS_River) +
+  facet_grid(riverGG ~ AIS_labels)
+
+ggsave('./figures/AISALL_MeanLengthBKT_BNT.png', width = 11, height = 6, units='in')
+
+
+```
+
+
 ```{r length at ageInSamples1 vs cohort strength}
 
 # NO relationship between cohortStrengthScaled and meanLen for ageInSamples = 1 
@@ -475,7 +625,10 @@ ais1 <- vB %>% filter(cohort %in% 2000:2013, ageInSamples == 1) %>%
   summarise(meanLen = mean(observedLength),
             meanYday = mean(yday))
 
-cs_ais1 <- left_join(cohortStrength,ais1)
+cohortStrength2 <- cohortStrength
+cohortStrength2$speciesGG <- factor(cohortStrength2$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+cs_ais1 <- left_join(cohortStrength2,ais1)
 
 # does mean size increase with day of year? No, but there are some early samples with yday < 255 that have small meanLen
 ggplot(cs_ais1, aes(meanYday,meanLen, color = species)) +
@@ -484,19 +637,21 @@ ggplot(cs_ais1, aes(meanYday,meanLen, color = species)) +
   facet_grid(~ metaPop01)
 summary(lm(meanLen ~ 0 + meanYday * species * factor(metaPop01), data = cs_ais1))
 
+cs_ais1$metaPopLabel <- factor(cs_ais1$metaPop01, label = c("Isolated Large", "MetaPopulation"))
+
 ggplot(cs_ais1 %>% filter(meanYday > 0, species %in% c('bkt','bnt')), aes(cohortStrengthScaled, meanLen)) +
   geom_point(aes(size = meanYday)) +
   geom_smooth(method = 'lm', se = FALSE, color = 'black') +
   theme_publication() +
   theme(strip.text.x = element_text(size = 8), 
-        strip.background = element_blank(),
+        #strip.background = element_blank(),
         legend.title = element_text("Species"),
         legend.position = "right",
         legend.direction = "vertical") + 
   labs(color = 'Cohort') +
   scale_y_continuous("Mean Fork Length (mm)") +
   scale_x_continuous("Cohort Strength") +
-  facet_grid(speciesGG ~ metaPop01)
+  facet_grid(speciesGG ~ metaPopLabel)
 
 ggsave('./figures/cohortStrengh_v_meanLenAIS1.png', width = 11, height = 8, units='in')
 
@@ -771,6 +926,14 @@ predGrid2Both$speciesGG <- factor(predGrid2Both$species, levels = c('bkt','bnt',
 predGrid2Both <- predGrid2Both %>% filter(!(cohort < 2002 & riverFactor %in% c('wb jimmy','wb mitchell','wb obear')))
 
 save(modBKT,modBNT,predBKT,predBNT,predGrid2Both, file = paste0('./data/out/bestModsBKTBNT.RData'))
+
+
+appraise(modBKT)
+ggsave('./figures/appraiseBKT.png', width = 11, height = 8, units='in')
+
+appraise(modBNT)
+ggsave('./figures/appraiseBNT.png', width = 11, height = 8, units='in')
+
 
 ```
 
@@ -1947,7 +2110,7 @@ ggplot(predGrid2, aes(ydayCumul,pred, color = species)) +
 
 
 
-```{r models with season-don't run. gam structure given best model from above}
+```{r models with season-do not run. gam structure given best model from above}
 
 # BKT, mod0 is best fixed effects model
 
