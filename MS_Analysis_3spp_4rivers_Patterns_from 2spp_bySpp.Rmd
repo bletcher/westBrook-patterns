@@ -354,6 +354,29 @@ ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'))
 
 ```
 
+```{r}
+vB %>%
+  group_by(season, riverOrdered) %>%
+  summarize(meanT = mean(meanTemperature, na.rm = TRUE)) %>%
+  ggplot(aes(season, meanT, color = riverOrdered)) +
+  geom_point()
+
+vB %>%
+  group_by(season) %>%
+  summarize(meanT = mean(meanTemperature, na.rm = TRUE))
+
+vB %>%
+  group_by(season, riverOrdered) %>%
+  summarize(meanF = mean(meanFlow, na.rm = TRUE)) %>%
+  ggplot(aes(season, meanF, color = riverOrdered)) +
+  geom_point()
+
+vB %>%
+  group_by(season) %>%
+  summarize(meanF = mean(meanFlow, na.rm = TRUE))
+```
+
+
 ```{r rivers where fish are fish}
 
 ggplot(vB %>% filter(cohort %in% 2000:2013, species %in% c('bkt', 'bnt', 'ats'), !is.na(observedLength)),
