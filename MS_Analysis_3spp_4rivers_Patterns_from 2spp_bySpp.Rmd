@@ -130,7 +130,8 @@ vB$speciesGG <- factor(vB$species, levels = c('bkt','bnt','ats'), labels = c("Br
 vB$seasonGG <- factor(vB$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
 vB$riverGG <- factor(vB$riverFactor,
                          levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
-                         labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+                         #labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+                         labels = c("West Brook","Open Large","Open Small","Isolated Large"))
 
 # scaling temperature and flow
 vB$meanTemperatureScaled <- as.numeric(scale(vB$meanTemperature))
@@ -943,7 +944,9 @@ predGrid2Both <- bind_rows(predGrid2BKT, predGrid2BNT) %>% dplyr:::select(-predB
 
 predGrid2Both$riverGG <- factor(predGrid2Both$riverFactor,
                          levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
-                         labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+                         #labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+                         labels = c("West Brook","Open Large","Open Small","Isolated Large"))
+
 predGrid2Both$speciesGG <- factor(predGrid2Both$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"))
 
 predGrid2Both <- predGrid2Both %>% filter(!(cohort < 2002 & riverFactor %in% c('wb jimmy','wb mitchell','wb obear')))
@@ -1143,7 +1146,8 @@ plotByRiver <- rbind(plotBKTByRiver, plotBNTByRiver)
 plotByRiver$speciesGG <- factor(plotByRiver$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
 plotByRiver$riverGG <- factor(plotByRiver$riverIndex,
                          levels=c(1,2,3,4),
-                         labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+                         #labels = c("West Brook","Open Large","Open Small","Isolated Small"))
+                         labels = c("West Brook","Open Large","Open Small","Isolated Large"))
 
 ggplot(plotByRiver, aes(x)) +
   geom_line(aes(y = y, color = speciesGG), size = 1.5) +

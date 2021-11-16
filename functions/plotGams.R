@@ -16,7 +16,8 @@ plotGamVarBySpecies <- function(var = 's(cohort)', xAxisLab = 'Cohort', bkt = mo
   both$speciesGG <- factor(both$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
   both$riverFactor <- factor(both$riverFactor,
                                   levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
-                                  labels = c("West Brook","Open Large","Open Small","Isolated Small"))  
+                                 # labels = c("West Brook","Open Large","Open Small","Isolated Small")) 
+                                  labels = c("West Brook","Open Large","Open Small","Isolated Large")) 
   xVar <- substr(var,3,nchar(var)-1)
   byVar <- as.character(unique(both$by_variable))
   
